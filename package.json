@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@vercel/analytics": "^2.0.1",
     "kokoro-js": "^1.2.1",
     "pdfjs-dist": "^6.1.200",
+    "posthog-js": "^1.407.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

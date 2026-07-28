@@ -11,6 +11,15 @@ npm install
 npm run dev
 ```
 
+Optional analytics (same PostHog project as iOS). Create `.env`:
+
+```bash
+VITE_PUBLIC_POSTHOG_KEY=phc_…
+VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+```
+
+Without the key, the app runs normally and skips analytics.
+
 ## Model weights
 
 By default the app downloads `onnx-community/Kokoro-82M-v1.0-ONNX` on the user’s explicit “Download voice model” click:
@@ -34,9 +43,16 @@ See [`public/model/manifest.json`](public/model/manifest.json).
 
 Vercel project rooted at `junco-reader/`, domain `read.tryjunco.com`. Headers in `vercel.json` include COOP/`credentialless` COEP for WASM/WebGPU friendliness.
 
+Set on the Vercel project:
+
+- `VITE_PUBLIC_POSTHOG_KEY` — Junco PostHog project token (same as iOS)
+- `VITE_PUBLIC_POSTHOG_HOST` — `https://us.i.posthog.com`
+
+After deploy, disable **Vercel Analytics** on this project if it was enabled. Events are tagged `surface=reader` in PostHog (see `junco-landing/docs/geo-prompts.md`).
+
 ## Privacy
 
-No accounts. Documents are parsed and synthesized only in the browser. The only network fetch after page load (besides fonts and anonymous [Vercel Analytics](https://vercel.com/docs/analytics)) is the voice model when the user opts in.
+No accounts. Documents are parsed and synthesized only in the browser. Optional network after page load (besides fonts): anonymous [PostHog](https://posthog.com) pageviews/events (no session replay, no autocapture, no document contents), and the voice model when the user opts in.
 
 ## SEO
 
@@ -46,5 +62,4 @@ No accounts. Documents are parsed and synthesized only in the browser. The only 
 - Static crawlable shell inside `#root` (replaced on React mount)
 - Unknown paths return Vercel 404 (no SPA catch-all) so they are not soft-duplicates of `/`
 
-After deploy: enable **Vercel Analytics** on the junco-reader project, then submit `https://read.tryjunco.com/sitemap.xml` in Google Search Console and Bing Webmaster Tools (see `junco-landing/docs/geo-prompts.md`).
-
+After deploy: submit `https://read.tryjunco.com/sitemap.xml` in Google Search Console (domain property `tryjunco.com`) and Bing Webmaster Tools (see `junco-landing/docs/geo-prompts.md`).

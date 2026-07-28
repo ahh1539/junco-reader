@@ -1,9 +1,34 @@
-import { track as vercelTrack } from '@vercel/analytics'
+import posthog from 'posthog-js'
+
+const KEY = import.meta.env.VITE_PUBLIC_POSTHOG_KEY
+const HOST = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
+
+let started = false
+
+/** Init once. Session replay off, anonymous, no autocapture (privacy). */
+export function initAnalytics() {
+  if (started || typeof window === 'undefined' || !KEY) return
+  posthog.init(KEY, {
+    api_host: HOST,
+    person_profiles: 'identified_only',
+    disable_session_recording: true,
+    autocapture: false,
+    capture_pageview: true,
+    capture_pageleave: true,
+  })
+  posthog.register({
+    surface: 'reader',
+    environment: import.meta.env.PROD ? 'production' : 'development',
+  })
+  started = true
+}
 
 /** Privacy-safe funnel events — never include document text or filenames. */
 export function track(event, data) {
   try {
-    vercelTrack(event, data)
+    if (!started) initAnalytics()
+    if (!KEY) return
+    posthog.capture(event, data)
   } catch {
     /* ignore — analytics must never break the app */
   }
