@@ -3,6 +3,9 @@
  * Kokoro emits 24 kHz; we keep whatever sampleRate the chunks share.
  */
 
+/** Cap on collected download length (~43 MB WAV at 24 kHz / 16-bit mono). */
+export const MAX_DOWNLOAD_AUDIO_SECONDS = 15 * 60
+
 /**
  * @param {{ samples: Float32Array, sampleRate: number }[]} chunks
  * @returns {Blob}

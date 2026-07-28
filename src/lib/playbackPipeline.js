@@ -16,6 +16,7 @@
  */
 
 import { synthesizeChunk } from './kokoroWorkerClient.js'
+import { MAX_DOWNLOAD_AUDIO_SECONDS } from './encodeWav.js'
 
 /** How many seconds of synthesized-but-unplayed audio to keep buffered. */
 export const BUFFER_TARGET_SECONDS = 30
@@ -71,6 +72,10 @@ export function trimAndFade(samples, sampleRate) {
  *   ttfaMs: number | null,
  *   underruns: number,
  * }) => void} [onProgress]
+ * @property {(info: {
+ *   audioChunks: { samples: Float32Array, sampleRate: number }[],
+ *   audioSec: number,
+ * }) => void} [onAudioCap] Fired once when download collection hits the duration cap
  */
 
 /**
@@ -86,6 +91,7 @@ export function trimAndFade(samples, sampleRate) {
  * @param {PipelineHandlers} [opts.handlers]
  * @param {number} [opts.bufferTargetSeconds]
  * @param {boolean} [opts.collectAudio] When true, retain PCM for WAV export on done/stop
+ * @param {number} [opts.maxDownloadAudioSec] Cap collected PCM length (default 15 min)
  * @returns {{ setSpeed: (rate: number) => void, stop: () => void, done: Promise<object> }}
  */
 export function runPipelinedPlayback({
@@ -96,6 +102,7 @@ export function runPipelinedPlayback({
   handlers = {},
   bufferTargetSeconds = BUFFER_TARGET_SECONDS,
   collectAudio = false,
+  maxDownloadAudioSec = MAX_DOWNLOAD_AUDIO_SECONDS,
 }) {
   let resolveDone
   let rejectDone
@@ -113,6 +120,8 @@ export function runPipelinedPlayback({
       ttfaMs: null,
       underruns: 0,
       audioChunks: collectAudio ? [] : undefined,
+      audioTruncated: false,
+      audioDownloadedEarly: false,
     })
     return { setSpeed: () => {}, stop: () => {}, done }
   }
@@ -120,6 +129,9 @@ export function runPipelinedPlayback({
   const readyQueue = [] // { index, text, buffer, nominalDuration }
   /** @type {{ samples: Float32Array, sampleRate: number }[]} */
   const collectedAudio = collectAudio ? [] : null
+  let collectedSec = 0
+  let audioTruncated = false
+  let audioCapNotified = false
   let nextToSynth = 0
   let synthMs = 0
   let audioSec = 0
@@ -179,11 +191,31 @@ export function runPipelinedPlayback({
         raw.sampling_rate,
       )
       if (collectedAudio) {
-        // Copy so AudioBuffer ownership / later mutation cannot corrupt the export.
-        collectedAudio.push({
-          samples: new Float32Array(samples),
-          sampleRate: raw.sampling_rate,
-        })
+        const remaining = maxDownloadAudioSec - collectedSec
+        if (remaining <= 0) {
+          audioTruncated = true
+        } else {
+          const maxSamples = Math.floor(remaining * raw.sampling_rate)
+          const clipped = samples.length > maxSamples
+          const toStore = clipped ? samples.subarray(0, maxSamples) : samples
+          if (clipped) audioTruncated = true
+          // Copy so AudioBuffer ownership / later mutation cannot corrupt the export.
+          collectedAudio.push({
+            samples: new Float32Array(toStore),
+            sampleRate: raw.sampling_rate,
+          })
+          collectedSec += toStore.length / raw.sampling_rate
+          if (collectedSec >= maxDownloadAudioSec) audioTruncated = true
+        }
+        if (audioTruncated && !audioCapNotified) {
+          audioCapNotified = true
+          handlers.onAudioCap?.({
+            audioChunks: collectedAudio.slice(),
+            audioSec: collectedSec,
+          })
+          // Free PCM after the early download handler has encoded the blob.
+          collectedAudio.length = 0
+        }
       }
       const buffer = audioCtx.createBuffer(1, samples.length, raw.sampling_rate)
       buffer.copyToChannel(samples, 0)
@@ -277,7 +309,13 @@ export function runPipelinedPlayback({
       audioSec,
       ttfaMs: firstAudioAt != null ? firstAudioAt - sessionStart : null,
       underruns,
-      ...(collectedAudio ? { audioChunks: collectedAudio } : {}),
+      ...(collectedAudio
+        ? {
+            audioChunks: collectedAudio,
+            audioTruncated,
+            audioDownloadedEarly: audioCapNotified,
+          }
+        : { audioTruncated: false, audioDownloadedEarly: false }),
     })
   }
 

@@ -13,7 +13,7 @@ import VoicePicker from './components/VoicePicker'
 
 import { getCapabilityMessage } from './lib/capability'
 import { chunkText } from './lib/chunkText'
-import { downloadWav } from './lib/encodeWav'
+import { downloadWav, MAX_DOWNLOAD_AUDIO_SECONDS } from './lib/encodeWav'
 import { extractFromFile, extractFromPaste } from './lib/extractText'
 import { formatForTts } from './lib/formatForTts'
 import {
@@ -58,6 +58,7 @@ export default function App() {
   const [paused, setPaused] = useState(false)
   const [activeChunk, setActiveChunk] = useState(-1)
   const [playError, setPlayError] = useState(null)
+  const [downloadNote, setDownloadNote] = useState(null)
 
   const [capabilityMsg, setCapabilityMsg] = useState(null)
   const [bannerDismissed, setBannerDismissed] = useState(false)
@@ -221,6 +222,7 @@ export default function App() {
   const runPlayback = useCallback(
     async (startIndex = 0) => {
       setPlayError(null)
+      setDownloadNote(null)
       stoppedRef.current = false
       setPlaying(true)
       setPaused(false)
@@ -275,6 +277,26 @@ export default function App() {
               listenedChunksRef.current = info.chunksDone
               pushStats(true, info)
             },
+            onAudioCap: (info) => {
+              if (!downloadAudioRef.current || !info.audioChunks?.length) return
+              try {
+                downloadWav(info.audioChunks, document?.name)
+                track(Events.AUDIO_DOWNLOAD, {
+                  chunks: info.audioChunks.length,
+                  partial: false,
+                  truncated: true,
+                  early: true,
+                  max_sec: MAX_DOWNLOAD_AUDIO_SECONDS,
+                })
+                const mins = Math.round(MAX_DOWNLOAD_AUDIO_SECONDS / 60)
+                setDownloadNote(
+                  `Saved the first ${mins} minutes of audio (download limit). Listening can continue.`,
+                )
+              } catch (err) {
+                console.error(err)
+                setPlayError(err?.message || 'Could not save the audio file.')
+              }
+            },
           },
         })
         playbackRef.current = playback
@@ -282,13 +304,26 @@ export default function App() {
         const result = await playback.done
         pushStats(false, result)
 
-        if (downloadAudioRef.current && result.audioChunks?.length) {
+        // Skip end-of-session download if we already saved when the cap was hit.
+        if (
+          downloadAudioRef.current &&
+          result.audioChunks?.length &&
+          !result.audioDownloadedEarly
+        ) {
           try {
             downloadWav(result.audioChunks, document?.name)
             track(Events.AUDIO_DOWNLOAD, {
               chunks: result.audioChunks.length,
               partial: Boolean(stoppedRef.current),
+              truncated: Boolean(result.audioTruncated),
+              max_sec: MAX_DOWNLOAD_AUDIO_SECONDS,
             })
+            if (result.audioTruncated) {
+              const mins = Math.round(MAX_DOWNLOAD_AUDIO_SECONDS / 60)
+              setDownloadNote(
+                `Saved the first ${mins} minutes of audio (download limit). Listening can continue.`,
+              )
+            }
           } catch (err) {
             console.error(err)
             setPlayError(err?.message || 'Could not save the audio file.')
@@ -510,7 +545,10 @@ export default function App() {
                   />
                   <span className="jr-option-copy">
                     <span className="jr-option-title">Download audio</span>
-                    <span className="jr-option-hint">Save a WAV when listening finishes</span>
+                    <span className="jr-option-hint">
+                      Save a WAV when listening finishes (up to{' '}
+                      {Math.round(MAX_DOWNLOAD_AUDIO_SECONDS / 60)} min)
+                    </span>
                   </span>
                 </label>
                 <label className={`jr-option ${playing && !paused ? 'is-disabled' : ''}`}>
@@ -530,6 +568,7 @@ export default function App() {
               </div>
 
               {playError ? <p className="jr-error">{playError}</p> : null}
+              {downloadNote ? <p className="jr-status">{downloadNote}</p> : null}
               {genStats ? <GenerationStats stats={genStats} /> : null}
             </div>
           </section>
