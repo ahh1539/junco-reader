@@ -53,6 +53,7 @@ function stripEmoji(text) {
     .filter((ch) => {
       const cp = ch.codePointAt(0)
       if (cp >= 0x1f300 && cp <= 0x1faff) return false // misc symbols & pictographs / emoticons / etc.
+      if (cp >= 0x1f1e6 && cp <= 0x1f1ff) return false // regional indicators (flag emoji)
       if (cp >= 0x2600 && cp <= 0x27bf) return false // misc symbols / dingbats
       if (cp === 0xfe0f || cp === 0x200d || cp === 0x20e3) return false // VS16, ZWJ, keycap
       return true

@@ -48,7 +48,7 @@ export function encodeWav(chunks) {
     const samples = chunk.samples
     for (let i = 0; i < samples.length; i++) {
       const s = Math.max(-1, Math.min(1, samples[i]))
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+      view.setInt16(offset, Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), true)
       offset += 2
     }
   }

@@ -435,6 +435,11 @@ export default function App() {
       ? `Chunk ${Math.max(activeChunk, 0) + 1} of ${chunks.length}${paused ? ' / paused' : ''}`
       : null
 
+  // Whether audio is collected is fixed for the life of a playback session, so
+  // turning this on mid-session would silently do nothing. Turning it off is
+  // still allowed — that stops the in-progress collection.
+  const downloadAudioLocked = playing && !downloadAudio
+
   return (
     <div className="jr-app">
       <a className="skip-link" href="#main">
@@ -537,10 +542,18 @@ export default function App() {
               </div>
 
               <div className="jr-options" role="group" aria-label="Generation options">
-                <label className="jr-option">
+                <label
+                  className={`jr-option ${downloadAudioLocked ? 'is-disabled' : ''}`}
+                  title={
+                    downloadAudioLocked
+                      ? 'Enable before pressing Listen — this session already started without it.'
+                      : undefined
+                  }
+                >
                   <input
                     type="checkbox"
                     checked={downloadAudio}
+                    disabled={downloadAudioLocked}
                     onChange={(e) => onDownloadAudioChange(e.target.checked)}
                   />
                   <span className="jr-option-copy">
