@@ -85,6 +85,7 @@ export function trimAndFade(samples, sampleRate) {
  * @param {number} [opts.initialSpeed]
  * @param {PipelineHandlers} [opts.handlers]
  * @param {number} [opts.bufferTargetSeconds]
+ * @param {boolean} [opts.collectAudio] When true, retain PCM for WAV export on done/stop
  * @returns {{ setSpeed: (rate: number) => void, stop: () => void, done: Promise<object> }}
  */
 export function runPipelinedPlayback({
@@ -94,6 +95,7 @@ export function runPipelinedPlayback({
   initialSpeed = 1,
   handlers = {},
   bufferTargetSeconds = BUFFER_TARGET_SECONDS,
+  collectAudio = false,
 }) {
   let resolveDone
   let rejectDone
@@ -103,11 +105,21 @@ export function runPipelinedPlayback({
   })
 
   if (!chunks.length) {
-    resolveDone({ chunksDone: 0, charsSpoken: 0, synthMs: 0, audioSec: 0, ttfaMs: null, underruns: 0 })
+    resolveDone({
+      chunksDone: 0,
+      charsSpoken: 0,
+      synthMs: 0,
+      audioSec: 0,
+      ttfaMs: null,
+      underruns: 0,
+      audioChunks: collectAudio ? [] : undefined,
+    })
     return { setSpeed: () => {}, stop: () => {}, done }
   }
 
   const readyQueue = [] // { index, text, buffer, nominalDuration }
+  /** @type {{ samples: Float32Array, sampleRate: number }[]} */
+  const collectedAudio = collectAudio ? [] : null
   let nextToSynth = 0
   let synthMs = 0
   let audioSec = 0
@@ -166,6 +178,13 @@ export function runPipelinedPlayback({
         raw.audio instanceof Float32Array ? raw.audio : new Float32Array(raw.audio),
         raw.sampling_rate,
       )
+      if (collectedAudio) {
+        // Copy so AudioBuffer ownership / later mutation cannot corrupt the export.
+        collectedAudio.push({
+          samples: new Float32Array(samples),
+          sampleRate: raw.sampling_rate,
+        })
+      }
       const buffer = audioCtx.createBuffer(1, samples.length, raw.sampling_rate)
       buffer.copyToChannel(samples, 0)
 
@@ -251,7 +270,15 @@ export function runPipelinedPlayback({
   function settleDone() {
     if (settled) return
     settled = true
-    resolveDone({ chunksDone, charsSpoken, synthMs, audioSec, ttfaMs: firstAudioAt != null ? firstAudioAt - sessionStart : null, underruns })
+    resolveDone({
+      chunksDone,
+      charsSpoken,
+      synthMs,
+      audioSec,
+      ttfaMs: firstAudioAt != null ? firstAudioAt - sessionStart : null,
+      underruns,
+      ...(collectedAudio ? { audioChunks: collectedAudio } : {}),
+    })
   }
 
   function settleError(err) {

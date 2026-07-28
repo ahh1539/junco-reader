@@ -13,7 +13,9 @@ import VoicePicker from './components/VoicePicker'
 
 import { getCapabilityMessage } from './lib/capability'
 import { chunkText } from './lib/chunkText'
+import { downloadWav } from './lib/encodeWav'
 import { extractFromFile, extractFromPaste } from './lib/extractText'
+import { formatForTts } from './lib/formatForTts'
 import {
   DEFAULT_DISPLAY_SIZE,
   clearModelCache,
@@ -43,6 +45,8 @@ export default function App() {
 
   const [voiceId, setVoiceId] = useState(DEFAULT_VOICE_ID)
   const [speed, setSpeedState] = useState(1)
+  const [downloadAudio, setDownloadAudio] = useState(false)
+  const [optimizeForSpeech, setOptimizeForSpeech] = useState(false)
   const [modelStatus, setModelStatus] = useState('unknown') // unknown | needed | downloading | loading | ready
   const [modelProgress, setModelProgress] = useState(0)
   const [modelError, setModelError] = useState(null)
@@ -64,15 +68,18 @@ export default function App() {
   const playbackRef = useRef(null) // { setSpeed, stop, done } from runPipelinedPlayback
   const stoppedRef = useRef(false)
   const speedRef = useRef(1)
+  const downloadAudioRef = useRef(false)
   const runtimeRef = useRef(null) // cached chooseRuntime() result
   const listenedChunksRef = useRef(0)
   const statsThrottleRef = useRef(0)
   const firstPlayTrackedRef = useRef(false)
 
-  const chunks = useMemo(
-    () => (document?.text ? chunkText(document.text) : []),
-    [document],
-  )
+  const speakText = useMemo(() => {
+    if (!document?.text) return ''
+    return optimizeForSpeech ? formatForTts(document.text) : document.text
+  }, [document, optimizeForSpeech])
+
+  const chunks = useMemo(() => (speakText ? chunkText(speakText) : []), [speakText])
 
   useEffect(() => {
     let cancelled = false
@@ -220,6 +227,7 @@ export default function App() {
 
       const voice = voiceById(voiceId)
       const playChunks = chunks.slice(startIndex)
+      const shouldCollectAudio = downloadAudioRef.current
 
       const pushStats = (live, partial = {}) => {
         if (live) {
@@ -260,6 +268,7 @@ export default function App() {
           voice: voiceId,
           audioCtx: ctx,
           initialSpeed: speedRef.current,
+          collectAudio: shouldCollectAudio,
           handlers: {
             onChunkStart: (i) => setActiveChunk(startIndex + i),
             onProgress: (info) => {
@@ -272,6 +281,19 @@ export default function App() {
 
         const result = await playback.done
         pushStats(false, result)
+
+        if (downloadAudioRef.current && result.audioChunks?.length) {
+          try {
+            downloadWav(result.audioChunks, document?.name)
+            track(Events.AUDIO_DOWNLOAD, {
+              chunks: result.audioChunks.length,
+              partial: Boolean(stoppedRef.current),
+            })
+          } catch (err) {
+            console.error(err)
+            setPlayError(err?.message || 'Could not save the audio file.')
+          }
+        }
 
         if (!stoppedRef.current) {
           setActiveChunk(-1)
@@ -286,7 +308,7 @@ export default function App() {
         setPaused(false)
       }
     },
-    [chunks, deviceLabel, ensureEngine, maybeShowNudge, voiceId],
+    [chunks, deviceLabel, document?.name, ensureEngine, maybeShowNudge, voiceId],
   )
 
   const onPlay = () => {
@@ -332,6 +354,16 @@ export default function App() {
     setSpeedState(rate)
     speedRef.current = rate
     playbackRef.current?.setSpeed(rate)
+  }
+
+  const onDownloadAudioChange = (checked) => {
+    setDownloadAudio(checked)
+    downloadAudioRef.current = checked
+  }
+
+  const onOptimizeForSpeechChange = (checked) => {
+    setOptimizeForSpeech(checked)
+    track(Events.TTS_FORMAT_TOGGLE, { enabled: checked })
   }
 
   const onFile = async (file) => {
@@ -468,6 +500,35 @@ export default function App() {
                   disabled={!chunks.length || ingestBusy}
                 />
               </div>
+
+              <div className="jr-options" role="group" aria-label="Generation options">
+                <label className="jr-option">
+                  <input
+                    type="checkbox"
+                    checked={downloadAudio}
+                    onChange={(e) => onDownloadAudioChange(e.target.checked)}
+                  />
+                  <span className="jr-option-copy">
+                    <span className="jr-option-title">Download audio</span>
+                    <span className="jr-option-hint">Save a WAV when listening finishes</span>
+                  </span>
+                </label>
+                <label className={`jr-option ${playing && !paused ? 'is-disabled' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={optimizeForSpeech}
+                    disabled={playing && !paused}
+                    onChange={(e) => onOptimizeForSpeechChange(e.target.checked)}
+                  />
+                  <span className="jr-option-copy">
+                    <span className="jr-option-title">Optimize for speech</span>
+                    <span className="jr-option-hint">
+                      Clean text so Kokoro reads more naturally
+                    </span>
+                  </span>
+                </label>
+              </div>
+
               {playError ? <p className="jr-error">{playError}</p> : null}
               {genStats ? <GenerationStats stats={genStats} /> : null}
             </div>
