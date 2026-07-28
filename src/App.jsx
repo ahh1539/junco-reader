@@ -8,6 +8,7 @@ import GenerationStats from './components/GenerationStats'
 import ModelDownloadButton from './components/ModelDownloadButton'
 import Player from './components/Player'
 import PostListenNudge, { hasSeenNudge, markNudgeSeen } from './components/PostListenNudge'
+import SpeedControl from './components/SpeedControl'
 import VoicePicker from './components/VoicePicker'
 
 import { getCapabilityMessage } from './lib/capability'
@@ -15,15 +16,19 @@ import { chunkText } from './lib/chunkText'
 import { extractFromFile, extractFromPaste } from './lib/extractText'
 import {
   DEFAULT_DISPLAY_SIZE,
+  clearModelCache,
   isModelCached,
   loadManifest,
 } from './lib/modelCache'
+import { chooseRuntime } from './lib/kokoroEngine'
 import {
   getLoadedMeta,
   loadKokoro,
-  playRawAudio,
-  synthesizeChunk,
-} from './lib/kokoroEngine'
+  prefetchVoice,
+  unloadKokoro,
+  warmUp,
+} from './lib/kokoroWorkerClient'
+import { runPipelinedPlayback } from './lib/playbackPipeline'
 import { DEFAULT_VOICE_ID, voiceById } from './lib/voices'
 import { MARKETING_URL } from './lib/appStore'
 
@@ -36,11 +41,13 @@ export default function App() {
   const [ingestBusy, setIngestBusy] = useState(false)
 
   const [voiceId, setVoiceId] = useState(DEFAULT_VOICE_ID)
+  const [speed, setSpeedState] = useState(1)
   const [modelStatus, setModelStatus] = useState('unknown') // unknown | needed | downloading | loading | ready
   const [modelProgress, setModelProgress] = useState(0)
   const [modelError, setModelError] = useState(null)
   const [displaySize, setDisplaySize] = useState(DEFAULT_DISPLAY_SIZE)
   const [deviceLabel, setDeviceLabel] = useState(null)
+  const [removingModel, setRemovingModel] = useState(false)
 
   const [playing, setPlaying] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -52,12 +59,13 @@ export default function App() {
   const [nudgeOpen, setNudgeOpen] = useState(false)
   const [genStats, setGenStats] = useState(null)
 
-  const ttsRef = useRef(null)
   const audioCtxRef = useRef(null)
-  const stopRef = useRef(null)
-  const abortRef = useRef(false)
-  const pauseGateRef = useRef(null)
+  const playbackRef = useRef(null) // { setSpeed, stop, done } from runPipelinedPlayback
+  const stoppedRef = useRef(false)
+  const speedRef = useRef(1)
+  const runtimeRef = useRef(null) // cached chooseRuntime() result
   const listenedChunksRef = useRef(0)
+  const statsThrottleRef = useRef(0)
 
   const chunks = useMemo(
     () => (document?.text ? chunkText(document.text) : []),
@@ -67,13 +75,16 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [cached, manifest, cap] = await Promise.all([
-        isModelCached(),
+      const [manifest, cap, runtime] = await Promise.all([
         loadManifest(),
         getCapabilityMessage(),
+        chooseRuntime(),
       ])
       if (cancelled) return
-      if (manifest?.displaySize) setDisplaySize(manifest.displaySize)
+      runtimeRef.current = runtime
+      const cached = await isModelCached(runtime)
+      setDisplaySize(runtime.displaySize || manifest?.displaySize || DEFAULT_DISPLAY_SIZE)
+      setDeviceLabel(runtime.note)
       setModelStatus(cached ? 'ready' : 'needed')
       setCapabilityMsg(cap)
     })()
@@ -84,17 +95,31 @@ export default function App() {
 
   const ensureAudio = () => {
     if (!audioCtxRef.current) {
-      audioCtxRef.current = new AudioContext()
+      // Kokoro emits 24kHz; matching the context rate skips per-buffer
+      // resampling on every chunk.
+      try {
+        audioCtxRef.current = new AudioContext({ sampleRate: 24000, latencyHint: 'playback' })
+      } catch {
+        audioCtxRef.current = new AudioContext()
+      }
     }
     return audioCtxRef.current
   }
+
+  const ensureRuntime = useCallback(async () => {
+    if (!runtimeRef.current) runtimeRef.current = await chooseRuntime()
+    return runtimeRef.current
+  }, [])
 
   const handleDownload = useCallback(async () => {
     setModelError(null)
     setModelStatus('downloading')
     setModelProgress(0)
     try {
-      const tts = await loadKokoro({
+      const runtime = await ensureRuntime()
+      const meta = await loadKokoro({
+        device: runtime.device,
+        dtype: runtime.dtype,
         onProgress: (info) => {
           if (info?.status === 'progress' && typeof info.progress === 'number') {
             const raw = info.progress
@@ -107,8 +132,7 @@ export default function App() {
           }
         },
       })
-      ttsRef.current = tts
-      const meta = getLoadedMeta()
+      await warmUp(voiceId)
       setDeviceLabel(meta.device === 'webgpu' ? 'WebGPU' : 'WASM')
       setModelProgress(100)
       setModelStatus('ready')
@@ -117,12 +141,15 @@ export default function App() {
       setModelStatus('needed')
       setModelError(err?.message || 'Download failed. Check your connection and try again.')
     }
-  }, [])
+  }, [ensureRuntime, voiceId])
 
   const ensureEngine = useCallback(async () => {
-    if (ttsRef.current) return ttsRef.current
-    setModelStatus((s) => (s === 'ready' ? 'loading' : 'downloading'))
-    const tts = await loadKokoro({
+    const alreadyLoaded = Boolean(getLoadedMeta().device)
+    if (!alreadyLoaded) setModelStatus((s) => (s === 'ready' ? 'loading' : 'downloading'))
+    const runtime = await ensureRuntime()
+    const meta = await loadKokoro({
+      device: runtime.device,
+      dtype: runtime.dtype,
       onProgress: (info) => {
         if (info?.status === 'progress' && typeof info.progress === 'number') {
           const raw = info.progress
@@ -130,22 +157,48 @@ export default function App() {
         }
       },
     })
-    ttsRef.current = tts
-    const meta = getLoadedMeta()
+    await warmUp(voiceId)
     setDeviceLabel(meta.device === 'webgpu' ? 'WebGPU' : 'WASM')
     setModelStatus('ready')
-    return tts
-  }, [])
+    return meta
+  }, [ensureRuntime, voiceId])
 
   const stopPlayback = useCallback(() => {
-    abortRef.current = true
-    stopRef.current?.stop()
-    stopRef.current = null
-    pauseGateRef.current = null
+    stoppedRef.current = true
+    playbackRef.current?.stop()
+    playbackRef.current = null
     setPlaying(false)
     setPaused(false)
     setActiveChunk(-1)
+    try {
+      if (audioCtxRef.current?.state === 'running') audioCtxRef.current.suspend()
+    } catch {
+      /* ignore */
+    }
   }, [])
+
+  const handleRemoveModel = useCallback(async () => {
+    const ok = window.confirm(
+      'Remove the voice model from this device? You can download it again anytime. Your documents are not stored and will not be affected.',
+    )
+    if (!ok) return
+
+    setRemovingModel(true)
+    setModelError(null)
+    try {
+      stopPlayback()
+      unloadKokoro()
+      await clearModelCache()
+      setModelProgress(0)
+      setModelStatus('needed')
+      setGenStats(null)
+    } catch (err) {
+      console.error(err)
+      setModelError(err?.message || 'Could not remove the cached model.')
+    } finally {
+      setRemovingModel(false)
+    }
+  }, [stopPlayback])
 
   const maybeShowNudge = useCallback(() => {
     if (hasSeenNudge()) return
@@ -158,90 +211,74 @@ export default function App() {
   const runPlayback = useCallback(
     async (startIndex = 0) => {
       setPlayError(null)
-      abortRef.current = false
+      stoppedRef.current = false
       setPlaying(true)
       setPaused(false)
 
-      const meta = getLoadedMeta()
       const voice = voiceById(voiceId)
-      const sessionStart = performance.now()
-      let firstAudioAt = null
-      let synthMs = 0
-      let audioSec = 0
-      let charsSpoken = 0
-      let chunksDone = 0
+      const playChunks = chunks.slice(startIndex)
 
-      const pushStats = (live) => {
-        const wallMs = performance.now() - sessionStart
+      const pushStats = (live, partial = {}) => {
+        if (live) {
+          const now = performance.now()
+          if (now - statsThrottleRef.current < 150) return
+          statsThrottleRef.current = now
+        }
+        const meta = getLoadedMeta()
         setGenStats({
           live,
           voice: voice.displayName,
           device: meta.device === 'webgpu' ? 'WebGPU' : meta.device === 'wasm' ? 'WASM' : deviceLabel,
           dtype: meta.dtype || 'q8',
-          chunksDone,
+          speed: speedRef.current,
+          chunksDone: partial.chunksDone ?? 0,
           chunksTotal: chunks.length,
-          charsSpoken,
-          ttfaMs: firstAudioAt != null ? firstAudioAt - sessionStart : null,
-          synthMs,
-          audioSec,
-          rtf: audioSec > 0 && synthMs > 0 ? synthMs / 1000 / audioSec : null,
-          wallMs,
+          charsSpoken: partial.charsSpoken ?? 0,
+          ttfaMs: partial.ttfaMs ?? null,
+          synthMs: partial.synthMs ?? null,
+          audioSec: partial.audioSec ?? null,
+          rtf:
+            partial.audioSec > 0 && partial.synthMs > 0
+              ? partial.synthMs / 1000 / partial.audioSec
+              : null,
+          underruns: partial.underruns ?? 0,
         })
       }
 
       pushStats(true)
 
       try {
-        const tts = await ensureEngine()
+        await ensureEngine()
         const ctx = ensureAudio()
         if (ctx.state === 'suspended') await ctx.resume()
 
-        for (let i = startIndex; i < chunks.length; i++) {
-          if (abortRef.current) break
+        const playback = runPipelinedPlayback({
+          chunks: playChunks,
+          voice: voiceId,
+          audioCtx: ctx,
+          initialSpeed: speedRef.current,
+          handlers: {
+            onChunkStart: (i) => setActiveChunk(startIndex + i),
+            onProgress: (info) => {
+              listenedChunksRef.current = info.chunksDone
+              pushStats(true, info)
+            },
+          },
+        })
+        playbackRef.current = playback
 
-          while (pauseGateRef.current) {
-            await pauseGateRef.current
-            if (abortRef.current) break
-          }
-          if (abortRef.current) break
+        const result = await playback.done
+        pushStats(false, result)
 
-          setActiveChunk(i)
-          const synthStart = performance.now()
-          const raw = await synthesizeChunk(tts, chunks[i], { voice: voiceId })
-          synthMs += performance.now() - synthStart
-          if (abortRef.current) break
-
-          while (pauseGateRef.current) {
-            await pauseGateRef.current
-            if (abortRef.current) break
-          }
-          if (abortRef.current) break
-
-          if (firstAudioAt == null) firstAudioAt = performance.now()
-
-          const handle = await playRawAudio(raw, ctx)
-          stopRef.current = handle
-          audioSec += handle.duration || 0
-          charsSpoken += chunks[i].length
-          chunksDone += 1
-          pushStats(true)
-
-          await handle.done
-          stopRef.current = null
-          listenedChunksRef.current += 1
-        }
-
-        pushStats(false)
-
-        if (!abortRef.current) {
+        if (!stoppedRef.current) {
           setActiveChunk(-1)
           maybeShowNudge()
         }
       } catch (err) {
         console.error(err)
         setPlayError(err?.message || 'Playback failed.')
-        pushStats(false)
       } finally {
+        playbackRef.current = null
         setPlaying(false)
         setPaused(false)
       }
@@ -255,33 +292,39 @@ export default function App() {
     runPlayback(0)
   }
 
-  const onPause = () => {
+  const onPause = async () => {
     setPaused(true)
-    stopRef.current?.stop()
-    stopRef.current = null
-    let release
-    pauseGateRef.current = new Promise((r) => {
-      release = r
-    })
-    pauseGateRef.current.release = release
+    // Suspend the graph clock so the current chunk keeps its place; no gap on resume.
+    try {
+      await audioCtxRef.current?.suspend()
+    } catch {
+      /* ignore */
+    }
   }
 
   const onResume = async () => {
-    const gate = pauseGateRef.current
-    pauseGateRef.current = null
-    gate?.release?.()
     setPaused(false)
-    const ctx = ensureAudio()
-    if (ctx.state === 'suspended') await ctx.resume()
-    // If we stopped mid-chunk, restart from current chunk
-    if (!playing && activeChunk >= 0) {
-      runPlayback(activeChunk)
+    try {
+      await audioCtxRef.current?.resume()
+    } catch {
+      /* ignore */
     }
   }
 
   const onStop = () => {
     stopPlayback()
     maybeShowNudge()
+  }
+
+  const onVoiceChange = (id) => {
+    setVoiceId(id)
+    prefetchVoice(id)
+  }
+
+  const onSpeedChange = (rate) => {
+    setSpeedState(rate)
+    speedRef.current = rate
+    playbackRef.current?.setSpeed(rate)
   }
 
   const onFile = async (file) => {
@@ -315,7 +358,7 @@ export default function App() {
 
   const progressLabel =
     playing || paused
-      ? `Chunk ${Math.max(activeChunk, 0) + 1} of ${chunks.length}${paused ? ' · paused' : ''}`
+      ? `Chunk ${Math.max(activeChunk, 0) + 1} of ${chunks.length}${paused ? ' / paused' : ''}`
       : null
 
   return (
@@ -341,7 +384,7 @@ export default function App() {
             Junco <em>Reader</em>
           </span>
         </a>
-        <p className="jr-nav-privacy">Free · private · on-device</p>
+        <p className="jr-nav-privacy">Free / private / on-device</p>
       </header>
 
       <main id="main" className="jr-main">
@@ -368,14 +411,14 @@ export default function App() {
               rows={4}
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
-              placeholder="Paste an article, notes, or Markdown…"
+              placeholder="Paste an article, notes, or Markdown..."
             />
             <button type="submit" className="jr-btn jr-btn-ghost" disabled={!paste.trim()}>
               Use pasted text
             </button>
           </form>
 
-          {ingestBusy ? <p className="jr-status">Extracting text…</p> : null}
+          {ingestBusy ? <p className="jr-status">Extracting text...</p> : null}
           {ingestError ? <p className="jr-error">{ingestError}</p> : null}
         </section>
 
@@ -395,14 +438,17 @@ export default function App() {
                 deviceLabel={deviceLabel}
                 error={modelError}
                 onDownload={handleDownload}
+                onRemove={handleRemoveModel}
+                removing={removingModel}
               />
 
               <div className="jr-controls-row">
                 <VoicePicker
                   value={voiceId}
-                  onChange={setVoiceId}
+                  onChange={onVoiceChange}
                   disabled={playing && !paused}
                 />
+                <SpeedControl value={speed} onChange={onSpeedChange} />
                 <Player
                   modelReady={modelStatus === 'ready'}
                   playing={playing}

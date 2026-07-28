@@ -1,0 +1,35 @@
+.jr-speed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: min(100%, 120px);
+}
+
+.jr-speed-label {
+  font-family: var(--jn-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jn-soft);
+}
+
+.jr-speed-select {
+  appearance: none;
+  background: var(--jn-paper-3)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238a7a68' d='M1 1l5 5 5-5'/%3E%3C/svg%3E")
+    right 0.85rem center no-repeat;
+  border: 1px solid var(--jn-line);
+  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  color: var(--jn-ink);
+  cursor: pointer;
+}
+
+.jr-speed-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.jr-speed-select:focus {
+  outline: 2px solid rgba(189, 106, 48, 0.35);
+  outline-offset: 1px;
+}

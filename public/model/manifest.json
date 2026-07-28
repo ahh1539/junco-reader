@@ -1,10 +1,13 @@
 {
   "version": "v1",
   "modelId": "onnx-community/Kokoro-82M-v1.0-ONNX",
-  "dtype": "q8",
+  "runtimes": {
+    "webgpu": { "dtype": "fp32", "displaySize": "~310 MB", "note": "WebGPU requires fp32 for clean audio" },
+    "wasm": { "dtype": "q8", "displaySize": "~85 MB", "note": "WASM fallback" }
+  },
   "approximateBytes": 89000000,
   "displaySize": "~85 MB",
-  "notes": "Mirror onnx-community/Kokoro-82M-v1.0-ONNX (q8 ONNX + tokenizer + voices) to https://models.tryjunco.com/kokoro-web/v1/{model}/ with CORS for https://read.tryjunco.com and localhost. Until mirrored, the app loads from Hugging Face Hub; Transformers.js Cache API still persists weights after the explicit download.",
+  "notes": "Mirror onnx-community/Kokoro-82M-v1.0-ONNX to https://models.tryjunco.com/kokoro-web/v1/{model}/ with CORS for https://read.tryjunco.com and localhost. The app picks WebGPU+fp32 when available (faster), else WASM+q8. Synthesis runs in a Web Worker; playback schedules chunks back-to-back on the AudioContext clock, buffering ~30s of audio ahead.",
   "cdnBase": "https://models.tryjunco.com/kokoro-web/v1",
   "voices": [
     "af_heart",

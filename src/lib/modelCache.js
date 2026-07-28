@@ -13,20 +13,28 @@ export const CDN_BASE = 'https://models.tryjunco.com/kokoro-web/v1'
 export const TRANSFORMERS_CACHE = 'transformers-cache'
 export const READY_KEY = `jr_model_ready_${MODEL_VERSION}`
 
-/** Approximate q8 download size shown before manifest loads. */
+/** Approximate q8 download size shown before device detection. */
 export const DEFAULT_DISPLAY_SIZE = '~85 MB'
 export const DEFAULT_BYTES = 89_000_000
 
-/**
- * Marker file URL used to detect a prior Cache API install.
- * q8 quantized ONNX is the primary weight file for wasm dtype.
- */
-function modelFileUrl() {
+function hubUrl(file) {
   const useCdn = import.meta.env.VITE_USE_CDN === 'true'
-  if (useCdn) {
-    return `${CDN_BASE}/${MODEL_ID}/onnx/model_quantized.onnx`
-  }
-  return `https://huggingface.co/${MODEL_ID}/resolve/main/onnx/model_quantized.onnx`
+  if (useCdn) return `${CDN_BASE}/${MODEL_ID}/onnx/${file}`
+  return `https://huggingface.co/${MODEL_ID}/resolve/main/onnx/${file}`
+}
+
+/** Possible primary weight files (fp32 WebGPU vs q8 WASM). */
+function candidateWeightUrls() {
+  return [
+    hubUrl('model.onnx'),
+    hubUrl('model_quantized.onnx'),
+    hubUrl('model_q8.onnx'),
+  ]
+}
+
+function weightUrlForDtype(dtype) {
+  if (dtype === 'fp32' || dtype === 'fp16') return hubUrl('model.onnx')
+  return hubUrl('model_quantized.onnx')
 }
 
 export async function loadManifest() {
@@ -39,32 +47,55 @@ export async function loadManifest() {
   }
 }
 
-export async function isModelCached() {
-  if (typeof localStorage !== 'undefined' && localStorage.getItem(READY_KEY) === '1') {
-    // Confirm cache still has the weight file when Cache API is available
-    if (!('caches' in window)) return true
-    try {
-      const cache = await caches.open(TRANSFORMERS_CACHE)
-      const hit = await cache.match(modelFileUrl())
-      if (hit) return true
-      // Marker without file: clear stale flag
-      localStorage.removeItem(READY_KEY)
-      return false
-    } catch {
-      return true
-    }
-  }
-
+async function cacheHasUrl(url) {
   if (!('caches' in window)) return false
   try {
     const cache = await caches.open(TRANSFORMERS_CACHE)
-    const hit = await cache.match(modelFileUrl())
+    return Boolean(await cache.match(url))
+  } catch {
+    return false
+  }
+}
+
+async function cacheHasWeights() {
+  for (const url of candidateWeightUrls()) {
+    if (await cacheHasUrl(url)) return true
+  }
+  return false
+}
+
+/**
+ * @param {{ dtype?: string } | null} [runtime]
+ */
+export async function isModelCached(runtime = null) {
+  const targetUrl = runtime?.dtype
+    ? weightUrlForDtype(runtime.dtype)
+    : null
+
+  const flagged =
+    typeof localStorage !== 'undefined' && localStorage.getItem(READY_KEY) === '1'
+
+  if (targetUrl) {
+    const hit = await cacheHasUrl(targetUrl)
     if (hit) {
       localStorage.setItem(READY_KEY, '1')
       return true
     }
-  } catch {
-    /* ignore */
+    if (flagged) localStorage.removeItem(READY_KEY)
+    return false
+  }
+
+  if (flagged) {
+    if (!('caches' in window)) return true
+    const hit = await cacheHasWeights()
+    if (hit) return true
+    localStorage.removeItem(READY_KEY)
+    return false
+  }
+
+  if (await cacheHasWeights()) {
+    localStorage.setItem(READY_KEY, '1')
+    return true
   }
   return false
 }
@@ -78,6 +109,41 @@ export function markModelReady() {
 }
 
 /**
+ * Remove cached model weights from this browser and clear the ready flag.
+ * Does not touch the user's documents (those are never persisted).
+ */
+export async function clearModelCache() {
+  try {
+    localStorage.removeItem(READY_KEY)
+  } catch {
+    /* ignore */
+  }
+
+  if (!('caches' in window)) return
+
+  try {
+    const keys = await caches.keys()
+    await Promise.all(
+      keys
+        .filter((name) => {
+          const lower = name.toLowerCase()
+          return (
+            name === TRANSFORMERS_CACHE ||
+            lower.includes('transformers') ||
+            lower.includes('onnx') ||
+            lower.includes('kokoro') ||
+            lower.includes('huggingface')
+          )
+        })
+        .map((name) => caches.delete(name)),
+    )
+  } catch (err) {
+    console.warn('Failed to clear model Cache API entries:', err)
+    throw err
+  }
+}
+
+/**
  * Point Transformers.js at the Junco CDN when enabled.
  * @param {import('@huggingface/transformers').env} env
  */
@@ -86,7 +152,6 @@ export function configureModelSource(env) {
   env.useBrowserCache = true
   if (import.meta.env.VITE_USE_CDN === 'true') {
     env.remoteHost = `${CDN_BASE}/`
-    // Full model id is substituted into {model}
     env.remotePathTemplate = '{model}/'
   }
 }

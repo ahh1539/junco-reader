@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import './DocumentPreview.css'
 
-export default function DocumentPreview({
+function DocumentPreview({
   document,
   activeChunkIndex = -1,
   chunks = [],
@@ -10,7 +11,7 @@ export default function DocumentPreview({
   const { name, kind, text, meta } = document
   const kindLabel = kind === 'pdf' ? 'PDF' : kind === 'md' ? 'Markdown' : 'Text'
   const pages =
-    meta?.pageCount != null ? ` · ${meta.pageCount} page${meta.pageCount === 1 ? '' : 's'}` : ''
+    meta?.pageCount != null ? ` / ${meta.pageCount} page${meta.pageCount === 1 ? '' : 's'}` : ''
 
   return (
     <section className="jr-doc" aria-label="Document preview">
@@ -24,7 +25,7 @@ export default function DocumentPreview({
         </div>
         <p className="jr-doc-stats">
           {text.length.toLocaleString()} characters
-          {chunks.length ? ` · ${chunks.length} chunks` : ''}
+          {chunks.length ? ` / ${chunks.length} chunks` : ''}
         </p>
       </header>
 
@@ -46,3 +47,5 @@ export default function DocumentPreview({
     </section>
   )
 }
+
+export default memo(DocumentPreview)

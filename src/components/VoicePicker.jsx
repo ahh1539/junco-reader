@@ -14,7 +14,7 @@ export default function VoicePicker({ value, onChange, disabled }) {
         {VOICES.map((v) => (
           <option key={v.id} value={v.id}>
             {v.displayName}
-            {v.note ? ` (${v.note})` : ''} · {v.accent} {v.gender}
+            {v.note ? ` (${v.note})` : ''} / {v.accent} {v.gender}
           </option>
         ))}
       </select>

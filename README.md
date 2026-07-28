@@ -13,7 +13,14 @@ npm run dev
 
 ## Model weights
 
-By default the app downloads `onnx-community/Kokoro-82M-v1.0-ONNX` (q8) from Hugging Face on the user’s explicit “Download voice model” click. Transformers.js stores weights in the browser **Cache API** (`transformers-cache`) so revisits skip the network.
+By default the app downloads `onnx-community/Kokoro-82M-v1.0-ONNX` on the user’s explicit “Download voice model” click:
+
+- **WebGPU browsers:** fp32 (~310 MB)  -  required for clean GPU audio and ~3-10× faster inference
+- **WASM fallback:** q8 (~85 MB)
+
+Transformers.js stores weights in the browser **Cache API** (`transformers-cache`) so revisits skip the network.
+
+Synthesis runs in a Web Worker (off the audio-scheduling thread) and keeps ~30s of audio pre-synthesized ahead of playback. Chunks are scheduled on the `AudioContext` clock back-to-back (not triggered by `onended`), so seams are gapless regardless of main-thread load. A tiny warm-up runs after load, for the selected voice, to hide cold shader/WASM compile from the first Listen.
 
 To serve from Junco’s CDN:
 

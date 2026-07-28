@@ -9,7 +9,7 @@ export default function AppStoreCta() {
         <a href={APP_STORE_URL} target="_blank" rel="noopener noreferrer">
           Get Junco on iPhone
         </a>
-        <span className="jr-cta-sep">·</span>
+        <span className="jr-cta-sep">/</span>
         <a href={MARKETING_URL} target="_blank" rel="noopener noreferrer">
           Learn more
         </a>

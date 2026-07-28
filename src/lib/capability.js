@@ -27,7 +27,7 @@ export async function getCapabilityMessage() {
     return 'Works best on desktop. Large model downloads and synthesis are heavier on mobile data and battery.'
   }
   if (!webgpu) {
-    return 'WebGPU isn’t available here, so synthesis will use WASM (slower). Chrome or Edge on desktop usually perform best.'
+    return "WebGPU isn't available here, so synthesis will use WASM (slower). Chrome or Edge on desktop usually perform best."
   }
   return null
 }
