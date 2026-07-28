@@ -1,0 +1,60 @@
+.jr-model {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 0;
+}
+
+.jr-model.is-ready {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--jn-line);
+  background: rgba(159, 205, 236, 0.18);
+}
+
+.jr-model-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: #3d8f5a;
+  box-shadow: 0 0 0 4px rgba(61, 143, 90, 0.15);
+  flex-shrink: 0;
+}
+
+.jr-model-title {
+  font-size: 0.9375rem;
+  font-weight: 550;
+  color: var(--jn-ink);
+}
+
+.jr-model-sub {
+  font-size: 0.8125rem;
+  color: var(--jn-soft);
+  line-height: 1.45;
+}
+
+.jr-model-btn {
+  align-self: flex-start;
+}
+
+.jr-model-bar {
+  height: 6px;
+  width: 100%;
+  background: var(--jn-line-2);
+  overflow: hidden;
+}
+
+.jr-model-bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--jn-accent), #d4894a);
+  transition: width 0.2s var(--jn-ease);
+}
+
+.jr-model-error {
+  font-size: 0.8125rem;
+  color: #9a2f1a;
+}

@@ -1,0 +1,66 @@
+.jr-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 180px;
+  padding: 2rem 1.5rem;
+  border: 1px dashed var(--jn-line);
+  background: rgba(251, 248, 237, 0.65);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.2s var(--jn-ease),
+    background 0.2s var(--jn-ease),
+    transform 0.2s var(--jn-ease);
+}
+
+.jr-drop:hover,
+.jr-drop.is-dragging {
+  border-color: var(--jn-accent);
+  background: rgba(189, 106, 48, 0.06);
+  transform: translateY(-1px);
+}
+
+.jr-drop.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.jr-drop-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.jr-drop-mark {
+  font-size: 1.5rem;
+  color: var(--jn-accent);
+  margin-bottom: 0.25rem;
+  animation: jr-bob 2.4s var(--jn-ease) infinite;
+}
+
+.jr-drop-title {
+  font-family: var(--jn-serif);
+  font-size: 1.125rem;
+  color: var(--jn-ink);
+}
+
+.jr-drop-sub {
+  font-size: 0.8125rem;
+  color: var(--jn-soft);
+  max-width: 28ch;
+}
+
+@keyframes jr-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}

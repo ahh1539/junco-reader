@@ -1,0 +1,23 @@
+.jr-player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.jr-player-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.jr-player-hint {
+  font-size: 0.8125rem;
+  color: var(--jn-soft);
+}
+
+.jr-player-progress {
+  font-family: var(--jn-mono);
+  font-size: 0.75rem;
+  color: var(--jn-ink-2);
+}

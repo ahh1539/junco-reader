@@ -1,0 +1,60 @@
+.jr-nudge-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(51, 41, 31, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  animation: jr-fade-in 0.25s var(--jn-ease) both;
+}
+
+.jr-nudge {
+  width: min(100%, 420px);
+  background: var(--jn-paper);
+  border: 1px solid var(--jn-line);
+  padding: 1.75rem 1.5rem 1.5rem;
+  box-shadow: 0 18px 40px rgba(51, 41, 31, 0.12);
+  animation: jr-nudge-up 0.35s var(--jn-ease) both;
+}
+
+.jr-nudge-kicker {
+  font-family: var(--jn-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jn-soft);
+  margin-bottom: 0.5rem;
+}
+
+.jr-nudge-title {
+  font-family: var(--jn-serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--jn-ink);
+  margin-bottom: 0.65rem;
+}
+
+.jr-nudge-body {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--jn-ink-2);
+  margin-bottom: 1.25rem;
+}
+
+.jr-nudge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+@keyframes jr-nudge-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

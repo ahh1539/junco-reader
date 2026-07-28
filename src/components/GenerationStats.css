@@ -1,0 +1,54 @@
+.jr-stats {
+  margin-top: 0.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--jn-line);
+  background: rgba(251, 248, 237, 0.75);
+  animation: jr-fade-in 0.4s var(--jn-ease) both;
+}
+
+.jr-stats-head {
+  margin-bottom: 0.85rem;
+}
+
+.jr-stats-kicker {
+  font-family: var(--jn-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jn-soft);
+  margin-bottom: 0.2rem;
+}
+
+.jr-stats-title {
+  font-family: var(--jn-serif);
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--jn-ink);
+}
+
+.jr-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1.25rem;
+}
+
+.jr-stats-item dt {
+  font-family: var(--jn-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jn-soft);
+  margin-bottom: 0.15rem;
+}
+
+.jr-stats-item dd {
+  font-size: 0.9rem;
+  color: var(--jn-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 720px) {
+  .jr-stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
