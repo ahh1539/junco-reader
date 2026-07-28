@@ -42,4 +42,6 @@ export const Events = {
   NUDGE_DISMISS: 'post_listen_nudge_dismiss',
   MODEL_DOWNLOAD_START: 'model_download_start',
   FIRST_PLAY: 'first_play',
+  AUDIO_DOWNLOAD: 'audio_download',
+  TTS_FORMAT_TOGGLE: 'tts_format_toggle',
 }
