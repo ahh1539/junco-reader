@@ -4,21 +4,133 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/webp" href="/junco-app-logo.webp" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Junco Reader: Free PDF Text to Speech in Your Browser</title>
     <meta
       name="description"
-      content="Junco Reader: read any PDF out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
+      content="Read any PDF, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
     />
     <meta name="theme-color" content="#f5f0e1" />
+    <meta name="application-name" content="Junco Reader" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://read.tryjunco.com/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Junco Reader" />
+    <meta property="og:title" content="Junco Reader: Free PDF Text to Speech in Your Browser" />
+    <meta
+      property="og:description"
+      content="Read any PDF, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
+    />
+    <meta property="og:url" content="https://read.tryjunco.com/" />
+    <meta property="og:image" content="https://read.tryjunco.com/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Junco Reader — read any PDF out loud in your browser"
+    />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Junco Reader: Free PDF Text to Speech in Your Browser" />
+    <meta
+      name="twitter:description"
+      content="Read any PDF, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
+    />
+    <meta name="twitter:image" content="https://read.tryjunco.com/og-image.jpg" />
+    <meta
+      name="twitter:image:alt"
+      content="Junco Reader — read any PDF out loud in your browser"
+    />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "@id": "https://read.tryjunco.com/#webapp",
+            "name": "Junco Reader",
+            "url": "https://read.tryjunco.com/",
+            "description": "Free browser tool that reads PDFs, Markdown, and text out loud with on-device Kokoro TTS. Documents stay in your browser.",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Web",
+            "browserRequirements": "Requires JavaScript and a modern browser with WebAssembly.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "isAccessibleForFree": true,
+            "publisher": {
+              "@type": "Organization",
+              "@id": "https://www.tryjunco.com/#organization",
+              "name": "Junco",
+              "url": "https://www.tryjunco.com/"
+            },
+            "isPartOf": {
+              "@type": "WebSite",
+              "@id": "https://www.tryjunco.com/#website",
+              "url": "https://www.tryjunco.com/",
+              "name": "Junco"
+            },
+            "image": "https://read.tryjunco.com/og-image.jpg"
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://read.tryjunco.com/#webpage",
+            "url": "https://read.tryjunco.com/",
+            "name": "Junco Reader: Free PDF Text to Speech in Your Browser",
+            "description": "Read any PDF, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required.",
+            "isPartOf": { "@id": "https://www.tryjunco.com/#website" },
+            "primaryEntity": { "@id": "https://read.tryjunco.com/#webapp" },
+            "inLanguage": "en-US"
+          }
+        ]
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Playfair+Display:ital,wght@0,500;0,600;1,400;1,500&display=swap"
       rel="stylesheet"
     />
-    <title>Junco Reader: PDF &amp; documents out loud</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static shell for crawlers; React replaces this on mount. -->
+      <main id="main">
+        <p>Free browser tool</p>
+        <h1>Junco Reader</h1>
+        <p>
+          Read any PDF out loud in your browser. Free, private, on-device Kokoro text-to-speech.
+          No account required. Your documents stay on your device.
+        </p>
+        <h2>How it works</h2>
+        <ol>
+          <li>Drop a PDF, TXT, or Markdown file, or paste text.</li>
+          <li>Download the on-device Kokoro voice model once (optional cache).</li>
+          <li>Press play — narration runs entirely in your browser.</li>
+        </ol>
+        <h2>Privacy</h2>
+        <ul>
+          <li>No accounts or uploads of your documents.</li>
+          <li>Parsing and speech synthesis happen locally.</li>
+          <li>
+            The only optional network fetch after page load (besides fonts) is the voice model when
+            you choose to download it.
+          </li>
+        </ul>
+        <p>
+          Want newsletters as a daily podcast instead?
+          <a href="https://www.tryjunco.com/">Learn about Junco on iPhone</a>
+          or
+          <a href="https://apps.apple.com/us/app/junco-newsletter-reader/id6761576928"
+            >download from the App Store</a
+          >.
+        </p>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

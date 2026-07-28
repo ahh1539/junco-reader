@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { APP_STORE_URL } from '../lib/appStore'
+import { Events, track } from '../lib/analytics'
 import './PostListenNudge.css'
 
 const NUDGE_KEY = 'jr_nudge_seen_v1'
@@ -20,10 +22,21 @@ export function markNudgeSeen() {
 }
 
 export default function PostListenNudge({ open, onClose }) {
+  useEffect(() => {
+    if (open) track(Events.NUDGE_SHOWN)
+  }, [open])
+
   if (!open) return null
 
   return (
-    <div className="jr-nudge-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="jr-nudge-backdrop"
+      role="presentation"
+      onClick={() => {
+        track(Events.NUDGE_DISMISS, { method: 'backdrop' })
+        onClose()
+      }}
+    >
       <div
         className="jr-nudge"
         role="dialog"
@@ -44,11 +57,21 @@ export default function PostListenNudge({ open, onClose }) {
             href={APP_STORE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={onClose}
+            onClick={() => {
+              track(Events.NUDGE_APP_STORE_CLICK)
+              onClose()
+            }}
           >
             Download Junco
           </a>
-          <button type="button" className="jr-btn jr-btn-ghost" onClick={onClose}>
+          <button
+            type="button"
+            className="jr-btn jr-btn-ghost"
+            onClick={() => {
+              track(Events.NUDGE_DISMISS, { method: 'keep_reading' })
+              onClose()
+            }}
+          >
             Keep reading
           </button>
         </div>

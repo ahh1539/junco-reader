@@ -36,4 +36,15 @@ Vercel project rooted at `junco-reader/`, domain `read.tryjunco.com`. Headers in
 
 ## Privacy
 
-No accounts. Documents are parsed and synthesized only in the browser. The only network fetch after page load (besides fonts) is the voice model when the user opts in.
+No accounts. Documents are parsed and synthesized only in the browser. The only network fetch after page load (besides fonts and anonymous [Vercel Analytics](https://vercel.com/docs/analytics)) is the voice model when the user opts in.
+
+## SEO
+
+- Canonical URL: `https://read.tryjunco.com/`
+- `public/robots.txt` + `public/sitemap.xml` (single URL)
+- Open Graph / Twitter / `WebApplication` JSON-LD in `index.html`
+- Static crawlable shell inside `#root` (replaced on React mount)
+- Unknown paths return Vercel 404 (no SPA catch-all) so they are not soft-duplicates of `/`
+
+After deploy: enable **Vercel Analytics** on the junco-reader project, then submit `https://read.tryjunco.com/sitemap.xml` in Google Search Console and Bing Webmaster Tools (see `junco-landing/docs/geo-prompts.md`).
+

@@ -31,6 +31,7 @@ import {
 import { runPipelinedPlayback } from './lib/playbackPipeline'
 import { DEFAULT_VOICE_ID, voiceById } from './lib/voices'
 import { MARKETING_URL } from './lib/appStore'
+import { Events, track } from './lib/analytics'
 
 import './App.css'
 
@@ -66,6 +67,7 @@ export default function App() {
   const runtimeRef = useRef(null) // cached chooseRuntime() result
   const listenedChunksRef = useRef(0)
   const statsThrottleRef = useRef(0)
+  const firstPlayTrackedRef = useRef(false)
 
   const chunks = useMemo(
     () => (document?.text ? chunkText(document.text) : []),
@@ -112,6 +114,7 @@ export default function App() {
   }, [])
 
   const handleDownload = useCallback(async () => {
+    track(Events.MODEL_DOWNLOAD_START)
     setModelError(null)
     setModelStatus('downloading')
     setModelProgress(0)
@@ -288,6 +291,10 @@ export default function App() {
 
   const onPlay = () => {
     if (!chunks.length) return
+    if (!firstPlayTrackedRef.current) {
+      firstPlayTrackedRef.current = true
+      track(Events.FIRST_PLAY)
+    }
     listenedChunksRef.current = 0
     runPlayback(0)
   }
