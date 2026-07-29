@@ -106,7 +106,6 @@
 
 .jr-hero {
   margin-bottom: 2rem;
-  animation: jr-hero-in 0.7s var(--jn-ease) both;
 }
 
 .jr-kicker {
@@ -145,7 +144,6 @@
   flex-direction: column;
   gap: 1.25rem;
   margin-bottom: 2rem;
-  animation: jr-hero-in 0.7s var(--jn-ease) 0.08s both;
 }
 
 .jr-paste {
@@ -186,7 +184,12 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  animation: jr-hero-in 0.55s var(--jn-ease) both;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .jr-workspace {
+    animation: jr-hero-in 0.55s var(--jn-ease) both;
+  }
 }
 
 .jr-controls {
@@ -270,7 +273,6 @@
   line-height: 1.55;
   color: var(--jn-soft);
   max-width: 52ch;
-  animation: jr-hero-in 0.7s var(--jn-ease) 0.16s both;
 }
 
 .jr-footnote a {

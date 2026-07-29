@@ -6,8 +6,13 @@ import { initAnalytics } from './lib/analytics'
 
 initAnalytics()
 
-createRoot(document.getElementById('root')).render(
+const rootEl = document.getElementById('root')
+createRoot(rootEl).render(
   <StrictMode>
     <App />
   </StrictMode>,
 )
+
+requestAnimationFrame(() => {
+  rootEl?.setAttribute('data-ready', '')
+})
