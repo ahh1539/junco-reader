@@ -20,3 +20,8 @@
 - Junco Reader: https://read.tryjunco.com
 - Junco (iOS newsletter podcast app): https://www.tryjunco.com
 - App Store: https://apps.apple.com/us/app/junco-newsletter-reader/id6761576928
+
+## Comparisons
+- vs quick-tts.com: https://read.tryjunco.com/compare/quick-tts/
+- vs kokoroweb.app: https://read.tryjunco.com/compare/kokoroweb/
+- vs offline-tts.com: https://read.tryjunco.com/compare/offline-tts/

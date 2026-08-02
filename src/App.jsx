@@ -31,17 +31,39 @@ import {
   warmUp,
 } from './lib/kokoroWorkerClient'
 import { runPipelinedPlayback } from './lib/playbackPipeline'
+import {
+  getWebSpeechVoices,
+  isWebSpeechSupported,
+  preferredDefaultVoice,
+  runWebSpeechPlayback,
+} from './lib/webSpeechEngine'
+import { sampleDocument } from './lib/sampleDocument'
+import {
+  clearShareParamFromUrl,
+  hasIncomingShareParam,
+  takeSharedFile,
+  takeSharedText,
+} from './lib/incomingShare'
 import { DEFAULT_VOICE_ID, voiceById } from './lib/voices'
 import { MARKETING_URL } from './lib/appStore'
 import { Events, track } from './lib/analytics'
 
 import './App.css'
 
+const WEB_SPEECH_SUPPORTED = isWebSpeechSupported()
+
 export default function App() {
   const [document, setDocument] = useState(null)
   const [paste, setPaste] = useState('')
   const [ingestError, setIngestError] = useState(null)
   const [ingestBusy, setIngestBusy] = useState(false)
+
+  // Kokoro (Natural) is the default: it's the flagship voice quality and the
+  // same on-device model family as the iOS app. Web Speech (Instant) stays
+  // available as a zero-download fallback, e.g. where Kokoro can't run.
+  const [engine, setEngine] = useState('kokoro')
+  const [webSpeechVoices, setWebSpeechVoices] = useState([])
+  const [webSpeechVoiceURI, setWebSpeechVoiceURI] = useState(null)
 
   const [voiceId, setVoiceId] = useState(DEFAULT_VOICE_ID)
   const [speed, setSpeedState] = useState(1)
@@ -66,7 +88,7 @@ export default function App() {
   const [genStats, setGenStats] = useState(null)
 
   const audioCtxRef = useRef(null)
-  const playbackRef = useRef(null) // { setSpeed, stop, done } from runPipelinedPlayback
+  const playbackRef = useRef(null) // { setSpeed, stop, done } from either engine
   const stoppedRef = useRef(false)
   const speedRef = useRef(1)
   const downloadAudioRef = useRef(false)
@@ -85,10 +107,11 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [manifest, cap, runtime] = await Promise.all([
+      const [manifest, cap, runtime, webSpeechVoiceList] = await Promise.all([
         loadManifest(),
         getCapabilityMessage(),
         chooseRuntime(),
+        getWebSpeechVoices(),
       ])
       if (cancelled) return
       runtimeRef.current = runtime
@@ -97,6 +120,9 @@ export default function App() {
       setDeviceLabel(runtime.note)
       setModelStatus(cached ? 'ready' : 'needed')
       setCapabilityMsg(cap)
+      setWebSpeechVoices(webSpeechVoiceList)
+      const preferred = preferredDefaultVoice(webSpeechVoiceList)
+      if (preferred) setWebSpeechVoiceURI(preferred.voiceURI)
     })()
     return () => {
       cancelled = true
@@ -147,6 +173,7 @@ export default function App() {
       setDeviceLabel(meta.device === 'webgpu' ? 'WebGPU' : 'WASM')
       setModelProgress(100)
       setModelStatus('ready')
+      track(Events.MODEL_DOWNLOAD_COMPLETE, { device: meta.device, dtype: runtime.dtype })
     } catch (err) {
       console.error(err)
       setModelStatus('needed')
@@ -219,14 +246,43 @@ export default function App() {
     }
   }, [])
 
-  const runPlayback = useCallback(
-    async (startIndex = 0) => {
-      setPlayError(null)
-      setDownloadNote(null)
-      stoppedRef.current = false
-      setPlaying(true)
-      setPaused(false)
+  const runWebSpeech = useCallback(
+    async (startIndex) => {
+      const playChunks = chunks.slice(startIndex)
+      const voice = webSpeechVoices.find((v) => v.voiceURI === webSpeechVoiceURI) || null
 
+      try {
+        const playback = runWebSpeechPlayback({
+          chunks: playChunks,
+          voice,
+          initialRate: speedRef.current,
+          handlers: {
+            onChunkStart: (i) => setActiveChunk(startIndex + i),
+            onProgress: (info) => {
+              listenedChunksRef.current = info.chunksDone
+            },
+          },
+        })
+        playbackRef.current = playback
+        await playback.done
+        if (!stoppedRef.current) {
+          setActiveChunk(-1)
+          maybeShowNudge()
+        }
+      } catch (err) {
+        console.error(err)
+        setPlayError(err?.message || 'Playback failed.')
+      } finally {
+        playbackRef.current = null
+        setPlaying(false)
+        setPaused(false)
+      }
+    },
+    [chunks, maybeShowNudge, webSpeechVoiceURI, webSpeechVoices],
+  )
+
+  const runKokoro = useCallback(
+    async (startIndex) => {
       const voice = voiceById(voiceId)
       const playChunks = chunks.slice(startIndex)
       const shouldCollectAudio = downloadAudioRef.current
@@ -346,11 +402,28 @@ export default function App() {
     [chunks, deviceLabel, document?.name, ensureEngine, maybeShowNudge, voiceId],
   )
 
+  const runPlayback = useCallback(
+    async (startIndex = 0) => {
+      setPlayError(null)
+      setDownloadNote(null)
+      stoppedRef.current = false
+      setPlaying(true)
+      setPaused(false)
+
+      if (engine === 'webspeech') {
+        await runWebSpeech(startIndex)
+      } else {
+        await runKokoro(startIndex)
+      }
+    },
+    [engine, runKokoro, runWebSpeech],
+  )
+
   const onPlay = () => {
     if (!chunks.length) return
     if (!firstPlayTrackedRef.current) {
       firstPlayTrackedRef.current = true
-      track(Events.FIRST_PLAY)
+      track(Events.FIRST_PLAY, { engine })
     }
     listenedChunksRef.current = 0
     runPlayback(0)
@@ -358,6 +431,14 @@ export default function App() {
 
   const onPause = async () => {
     setPaused(true)
+    if (engine === 'webspeech') {
+      try {
+        window.speechSynthesis?.pause()
+      } catch {
+        /* best-effort only */
+      }
+      return
+    }
     // Suspend the graph clock so the current chunk keeps its place; no gap on resume.
     try {
       await audioCtxRef.current?.suspend()
@@ -368,6 +449,14 @@ export default function App() {
 
   const onResume = async () => {
     setPaused(false)
+    if (engine === 'webspeech') {
+      try {
+        window.speechSynthesis?.resume()
+      } catch {
+        /* best-effort only */
+      }
+      return
+    }
     try {
       await audioCtxRef.current?.resume()
     } catch {
@@ -380,9 +469,22 @@ export default function App() {
     maybeShowNudge()
   }
 
-  const onVoiceChange = (id) => {
+  const onEngineChange = (next) => {
+    if (next === engine) return
+    stopPlayback()
+    setGenStats(null)
+    setPlayError(null)
+    setEngine(next)
+    track(Events.ENGINE_SWITCH, { to: next })
+  }
+
+  const onKokoroVoiceChange = (id) => {
     setVoiceId(id)
     prefetchVoice(id)
+  }
+
+  const onWebSpeechVoiceChange = (uri) => {
+    setWebSpeechVoiceURI(uri)
   }
 
   const onSpeedChange = (rate) => {
@@ -409,6 +511,7 @@ export default function App() {
       const doc = await extractFromFile(file)
       setDocument(doc)
       setGenStats(null)
+      track(Events.DOCUMENT_LOADED, { source: 'file', kind: doc.kind })
     } catch (err) {
       setIngestError(err?.message || 'Could not read that file.')
       setDocument(null)
@@ -425,10 +528,75 @@ export default function App() {
       const doc = extractFromPaste(paste)
       setDocument(doc)
       setGenStats(null)
+      track(Events.DOCUMENT_LOADED, { source: 'paste', kind: doc.kind })
     } catch (err) {
       setIngestError(err?.message || 'Nothing to read.')
     }
   }
+
+  const onTrySample = () => {
+    setIngestError(null)
+    stopPlayback()
+    const doc = sampleDocument()
+    setDocument(doc)
+    setGenStats(null)
+    track(Events.DOCUMENT_LOADED, { source: 'sample', kind: doc.kind })
+  }
+
+  // Two OS-level entry points into a document, both landing here once on
+  // mount: (1) File Handling API -- an installed PWA opened via "Open with
+  // Junco Reader" / a double-clicked .pdf; (2) Web Share Target -- shared
+  // from another app's share sheet, staged by public/sw.js and handed off
+  // via the ?shared=1 redirect (see src/lib/incomingShare.js).
+  useEffect(() => {
+    let cancelled = false
+
+    if ('launchQueue' in window) {
+      window.launchQueue.setConsumer(async (launchParams) => {
+        if (cancelled || !launchParams.files?.length) return
+        try {
+          const file = await launchParams.files[0].getFile()
+          if (!cancelled) onFile(file)
+        } catch (err) {
+          console.error(err)
+        }
+      })
+    }
+
+    if (hasIncomingShareParam()) {
+      ;(async () => {
+        const sharedFile = await takeSharedFile()
+        if (cancelled) return
+        if (sharedFile) {
+          onFile(sharedFile)
+        } else {
+          const shared = await takeSharedText()
+          if (cancelled) return
+          const text = [shared?.title, shared?.text, shared?.url].filter(Boolean).join('\n\n')
+          if (text.trim()) {
+            setIngestError(null)
+            stopPlayback()
+            try {
+              const doc = extractFromPaste(text)
+              setDocument(doc)
+              setGenStats(null)
+              track(Events.DOCUMENT_LOADED, { source: 'share_target', kind: doc.kind })
+            } catch (err) {
+              setIngestError(err?.message || 'Nothing to read.')
+            }
+          }
+        }
+        clearShareParamFromUrl()
+      })()
+    }
+
+    return () => {
+      cancelled = true
+    }
+    // Mount-once: onFile/stopPlayback are stable enough for a launch handoff
+    // that can only ever fire once per page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const progressLabel =
     playing || paused
@@ -437,8 +605,15 @@ export default function App() {
 
   // Whether audio is collected is fixed for the life of a playback session, so
   // turning this on mid-session would silently do nothing. Turning it off is
-  // still allowed — that stops the in-progress collection.
+  // still allowed -- that stops the in-progress collection. Kokoro-only: Web
+  // Speech utterances never expose raw PCM to the page.
   const downloadAudioLocked = playing && !downloadAudio
+
+  const engineReady = engine === 'webspeech' ? WEB_SPEECH_SUPPORTED : modelStatus === 'ready'
+  const readyHint =
+    engine === 'kokoro' && modelStatus !== 'ready'
+      ? 'Download the voice model to start listening.'
+      : null
 
   return (
     <div className="jr-app">
@@ -446,18 +621,18 @@ export default function App() {
         Skip to main content
       </a>
 
-      {!bannerDismissed && capabilityMsg ? (
+      {!bannerDismissed && capabilityMsg && engine === 'kokoro' ? (
         <CapabilityBanner message={capabilityMsg} onDismiss={() => setBannerDismissed(true)} />
       ) : null}
 
       <header className="jr-nav">
         <a className="jr-nav-brand" href={MARKETING_URL} target="_blank" rel="noopener noreferrer">
           <img
-            className="jr-nav-logo pixel-art"
+            className="jr-nav-logo"
             src="/junco-app-logo.webp"
             alt=""
-            width="28"
-            height="28"
+            width="32"
+            height="32"
           />
           <span className="jr-nav-name">
             Junco <em>Reader</em>
@@ -497,6 +672,18 @@ export default function App() {
             </button>
           </form>
 
+          <p className="jr-sample-cta">
+            Nothing to paste yet?{' '}
+            <button
+              type="button"
+              className="jr-sample-link"
+              onClick={onTrySample}
+              disabled={ingestBusy}
+            >
+              Try a 30-second sample
+            </button>
+          </p>
+
           {ingestBusy ? <p className="jr-status">Extracting text...</p> : null}
           {ingestError ? <p className="jr-error">{ingestError}</p> : null}
         </section>
@@ -510,26 +697,22 @@ export default function App() {
             />
 
             <div className="jr-controls">
-              <ModelDownloadButton
-                status={modelStatus === 'unknown' ? 'needed' : modelStatus}
-                progress={modelProgress}
-                displaySize={displaySize}
-                deviceLabel={deviceLabel}
-                error={modelError}
-                onDownload={handleDownload}
-                onRemove={handleRemoveModel}
-                removing={removingModel}
-              />
-
               <div className="jr-controls-row">
                 <VoicePicker
-                  value={voiceId}
-                  onChange={onVoiceChange}
+                  engine={engine}
+                  onEngineChange={onEngineChange}
+                  webSpeechSupported={WEB_SPEECH_SUPPORTED}
+                  kokoroVoiceId={voiceId}
+                  onKokoroVoiceChange={onKokoroVoiceChange}
+                  webSpeechVoices={webSpeechVoices}
+                  webSpeechVoiceURI={webSpeechVoiceURI}
+                  onWebSpeechVoiceChange={onWebSpeechVoiceChange}
                   disabled={playing && !paused}
                 />
                 <SpeedControl value={speed} onChange={onSpeedChange} />
                 <Player
-                  modelReady={modelStatus === 'ready'}
+                  ready={engineReady}
+                  readyHint={readyHint}
                   playing={playing}
                   paused={paused}
                   progressLabel={progressLabel}
@@ -541,29 +724,44 @@ export default function App() {
                 />
               </div>
 
+              {engine === 'kokoro' ? (
+                <ModelDownloadButton
+                  status={modelStatus === 'unknown' ? 'needed' : modelStatus}
+                  progress={modelProgress}
+                  displaySize={displaySize}
+                  deviceLabel={deviceLabel}
+                  error={modelError}
+                  onDownload={handleDownload}
+                  onRemove={handleRemoveModel}
+                  removing={removingModel}
+                />
+              ) : null}
+
               <div className="jr-options" role="group" aria-label="Generation options">
-                <label
-                  className={`jr-option ${downloadAudioLocked ? 'is-disabled' : ''}`}
-                  title={
-                    downloadAudioLocked
-                      ? 'Enable before pressing Listen — this session already started without it.'
-                      : undefined
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={downloadAudio}
-                    disabled={downloadAudioLocked}
-                    onChange={(e) => onDownloadAudioChange(e.target.checked)}
-                  />
-                  <span className="jr-option-copy">
-                    <span className="jr-option-title">Download audio</span>
-                    <span className="jr-option-hint">
-                      Save a WAV when listening finishes (up to{' '}
-                      {Math.round(MAX_DOWNLOAD_AUDIO_SECONDS / 60)} min)
+                {engine === 'kokoro' ? (
+                  <label
+                    className={`jr-option ${downloadAudioLocked ? 'is-disabled' : ''}`}
+                    title={
+                      downloadAudioLocked
+                        ? 'Enable before pressing Listen — this session already started without it.'
+                        : undefined
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={downloadAudio}
+                      disabled={downloadAudioLocked}
+                      onChange={(e) => onDownloadAudioChange(e.target.checked)}
+                    />
+                    <span className="jr-option-copy">
+                      <span className="jr-option-title">Download audio</span>
+                      <span className="jr-option-hint">
+                        Save a WAV when listening finishes (up to{' '}
+                        {Math.round(MAX_DOWNLOAD_AUDIO_SECONDS / 60)} min)
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                ) : null}
                 <label className={`jr-option ${playing && !paused ? 'is-disabled' : ''}`}>
                   <input
                     type="checkbox"
@@ -582,7 +780,7 @@ export default function App() {
 
               {playError ? <p className="jr-error">{playError}</p> : null}
               {downloadNote ? <p className="jr-status">{downloadNote}</p> : null}
-              {genStats ? <GenerationStats stats={genStats} /> : null}
+              {engine === 'kokoro' && genStats ? <GenerationStats stats={genStats} /> : null}
             </div>
           </section>
         ) : null}
@@ -600,7 +798,12 @@ export default function App() {
       </main>
 
       <AppStoreCta />
-      <PostListenNudge open={nudgeOpen} onClose={() => setNudgeOpen(false)} />
+      <PostListenNudge
+        open={nudgeOpen}
+        engine={engine}
+        onTryNatural={() => onEngineChange('kokoro')}
+        onClose={() => setNudgeOpen(false)}
+      />
     </div>
   )
 }

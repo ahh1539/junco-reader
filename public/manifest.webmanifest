@@ -1,0 +1,58 @@
+{
+  "name": "Junco Reader",
+  "short_name": "Junco Reader",
+  "description": "Free, private, on-device text-to-speech for PDFs, Markdown, and text. Runs entirely in your browser.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f0e1",
+  "theme_color": "#f5f0e1",
+  "orientation": "any",
+  "lang": "en-US",
+  "categories": ["utilities", "productivity", "accessibility"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "text/plain": [".txt"],
+        "text/markdown": [".md", ".markdown"]
+      }
+    }
+  ],
+  "share_target": {
+    "action": "/share-target/",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "shared_file",
+          "accept": [
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            ".pdf",
+            ".txt",
+            ".md",
+            ".markdown"
+          ]
+        }
+      ]
+    }
+  }
+}

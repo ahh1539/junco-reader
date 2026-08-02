@@ -73,14 +73,17 @@
 }
 
 .jr-nav-logo {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
 }
 
 .jr-nav-name {
   font-family: var(--jn-serif);
-  font-size: 1.15rem;
-  font-weight: 500;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .jr-nav-name em {
@@ -178,6 +181,32 @@
 
 .jr-paste .jr-btn {
   align-self: flex-start;
+}
+
+.jr-sample-cta {
+  font-size: 0.8125rem;
+  color: var(--jn-soft);
+}
+
+.jr-sample-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--jn-accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.jr-sample-link:hover:not(:disabled) {
+  color: var(--jn-ink);
+}
+
+.jr-sample-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .jr-workspace {

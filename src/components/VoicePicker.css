@@ -33,3 +33,42 @@
   outline: 2px solid rgba(189, 106, 48, 0.35);
   outline-offset: 1px;
 }
+
+.jr-voice-engine {
+  display: inline-flex;
+  border: 1px solid var(--jn-line);
+  width: fit-content;
+}
+
+.jr-voice-engine-btn {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--jn-ink-2);
+  cursor: pointer;
+  transition:
+    background 0.2s var(--jn-ease),
+    color 0.2s var(--jn-ease);
+}
+
+.jr-voice-engine-btn:not(:last-child) {
+  border-right: 1px solid var(--jn-line);
+}
+
+.jr-voice-engine-btn.is-active {
+  background: var(--jn-charcoal);
+  color: var(--jn-paper);
+}
+
+.jr-voice-engine-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.jr-voice-empty {
+  font-size: 0.8125rem;
+  color: var(--jn-soft);
+  padding: 0.55rem 0;
+}

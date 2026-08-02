@@ -39,9 +39,13 @@ export const Events = {
   LEARN_MORE_CLICK: 'learn_more_click',
   NUDGE_SHOWN: 'post_listen_nudge_shown',
   NUDGE_APP_STORE_CLICK: 'post_listen_nudge_app_store_click',
+  NUDGE_TRY_NATURAL_CLICK: 'post_listen_nudge_try_natural_click',
   NUDGE_DISMISS: 'post_listen_nudge_dismiss',
   MODEL_DOWNLOAD_START: 'model_download_start',
+  MODEL_DOWNLOAD_COMPLETE: 'model_download_complete',
+  DOCUMENT_LOADED: 'document_loaded',
   FIRST_PLAY: 'first_play',
   AUDIO_DOWNLOAD: 'audio_download',
   TTS_FORMAT_TOGGLE: 'tts_format_toggle',
+  ENGINE_SWITCH: 'engine_switch',
 }

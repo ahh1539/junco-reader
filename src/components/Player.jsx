@@ -1,7 +1,8 @@
 import './Player.css'
 
 export default function Player({
-  modelReady,
+  ready,
+  readyHint,
   playing,
   paused,
   progressLabel,
@@ -13,9 +14,7 @@ export default function Player({
 }) {
   return (
     <div className="jr-player">
-      {!modelReady ? (
-        <p className="jr-player-hint">Download the voice model to start listening.</p>
-      ) : null}
+      {!ready && readyHint ? <p className="jr-player-hint">{readyHint}</p> : null}
 
       <div className="jr-player-controls">
         {!playing ? (
@@ -23,7 +22,7 @@ export default function Player({
             type="button"
             className="jr-btn jr-btn-primary"
             onClick={onPlay}
-            disabled={disabled || !modelReady}
+            disabled={disabled || !ready}
           >
             Listen
           </button>
