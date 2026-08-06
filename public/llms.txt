@@ -1,15 +1,15 @@
 # Junco Reader
 
-> Junco Reader is a free browser tool that reads PDFs, Markdown, and pasted text out loud.
+> Junco Reader is a free browser tool that reads DRM-free EPUBs, PDFs, Markdown, and pasted text out loud.
 > Narration runs entirely on-device using the Kokoro text-to-speech model — documents are
 > never uploaded to a server. No account required.
 
 ## Key facts
 - Platform: web (any modern browser with WebAssembly support).
 - Status: live, free to use.
-- Categories: text to speech, PDF reader, accessibility tool, on-device AI.
+- Categories: text to speech, EPUB reader, PDF reader, accessibility tool, on-device AI.
 - Differentiators: on-device Kokoro TTS (not a cloud API), no account or upload, works with
-  PDF/TXT/Markdown/pasted text, one-time optional voice model download for offline use.
+  DRM-free EPUB/PDF/TXT/Markdown/pasted text, one-time optional voice model download for offline use.
 - Companion product: Junco, an iOS app that turns email newsletters into a daily podcast.
 
 ## Not to be confused with

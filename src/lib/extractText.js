@@ -21,11 +21,16 @@ export function markdownToPlainText(md) {
 
 /**
  * @param {File} file
- * @returns {Promise<{ text: string, kind: 'txt' | 'md' | 'pdf', name: string }>}
+ * @returns {Promise<{ text: string, kind: 'txt' | 'md' | 'pdf' | 'epub', name: string }>}
  */
 export async function extractFromFile(file) {
   const name = file.name || 'document'
   const lower = name.toLowerCase()
+
+  if (lower.endsWith('.epub') || file.type === 'application/epub+zip') {
+    const { extractEpubText } = await import('./extractEpub.js')
+    return extractEpubText(file)
+  }
 
   if (lower.endsWith('.pdf') || file.type === 'application/pdf') {
     const { extractPdfText } = await import('./extractPdf.js')

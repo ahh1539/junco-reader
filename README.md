@@ -1,6 +1,6 @@
 # Junco Reader
 
-Free, private, fully client-side browser tool that narrates PDFs, TXT, Markdown, and pasted text. Funnel companion to the [Junco](https://www.tryjunco.com) iOS newsletter podcast app.
+Free, private, fully client-side browser tool that narrates PDFs, DRM-free EPUBs, TXT, Markdown, and pasted text. Funnel companion to the [Junco](https://www.tryjunco.com) iOS newsletter podcast app.
 
 **Production URL:** `https://read.tryjunco.com`
 
@@ -64,7 +64,7 @@ After deploy, disable **Vercel Analytics** on this project if it was enabled. Ev
 Installable (`public/manifest.webmanifest` + `public/sw.js`). The service worker only registers in production builds (see `src/main.jsx`) to keep `npm run dev` free of caching surprises.
 
 - **Offline app shell:** the entry HTML/JS/CSS/logo are precached on install; everything else same-origin is cache-first, populated as it's fetched. The Kokoro model itself lives in its own cache (`transformers-cache`, cross-origin) and is untouched by this.
-- **File Handling:** installed, Junco Reader can be the OS "Open with" target for `.pdf`/`.txt`/`.md`/`.markdown` (`file_handlers` in the manifest, consumed via `window.launchQueue` in `App.jsx`).
+- **File Handling:** installed, Junco Reader can be the OS "Open with" target for `.pdf`/`.epub`/`.txt`/`.md`/`.markdown` (`file_handlers` in the manifest, consumed via `window.launchQueue` in `App.jsx`).
 - **Web Share Target:** on Android/Chrome, sharing a file (or text/URL) from another app's share sheet can target Junco Reader directly (`share_target` in the manifest). Since there's no backend, `sw.js` intercepts the POST, stages the payload in a dedicated Cache Storage bucket, and redirects to `/?shared=1`; `src/lib/incomingShare.js` picks it up on load.
 
 Icons in `public/icons/` are derived from `public/junco-app-logo.webp` (see the maskable-icon padding note if regenerating).
@@ -76,6 +76,10 @@ Icons in `public/icons/` are derived from `public/junco-app-logo.webp` (see the 
 ## Privacy
 
 No accounts. Documents are parsed and synthesized only in the browser. Optional network after page load (besides fonts): anonymous [PostHog](https://posthog.com) pageviews/events (no session replay, no autocapture, no document contents), and the voice model when the user opts in.
+
+### EPUBs
+
+EPUB 2/3 books are unpacked and read entirely on-device. Junco Reader supports DRM-free books only; it does not upload or retain the EPUB itself. For a previously opened book, it stores a byte-derived identifier plus the current chapter and character offset, so re-importing the same file can offer a local resume point. EPUB playback starts as soon as the first chunk is synthesized and continues chapter by chapter; it does not create a full-book audio download.
 
 ## SEO
 

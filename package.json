@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
+    "fflate": "^0.8.2",
     "kokoro-js": "^1.2.1",
     "pdfjs-dist": "^6.1.200",
     "posthog-js": "^1.407.5",
@@ -22,6 +23,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "happy-dom": "^20.11.1",
     "oxlint": "^1.71.0",
     "vite": "^8.1.1",
     "vitest": "^4.1.10"

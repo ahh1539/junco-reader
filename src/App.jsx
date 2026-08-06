@@ -12,8 +12,9 @@ import SpeedControl from './components/SpeedControl'
 import VoicePicker from './components/VoicePicker'
 
 import { getCapabilityMessage } from './lib/capability'
-import { chunkText } from './lib/chunkText'
+import { chunkTextWithOffsets } from './lib/chunkText'
 import { downloadWav, MAX_DOWNLOAD_AUDIO_SECONDS } from './lib/encodeWav'
+import { clearEpubProgress, loadEpubProgress, saveEpubProgress } from './lib/epubProgress'
 import { extractFromFile, extractFromPaste } from './lib/extractText'
 import { formatForTts } from './lib/formatForTts'
 import {
@@ -52,6 +53,16 @@ import './App.css'
 
 const WEB_SPEECH_SUPPORTED = isWebSpeechSupported()
 
+function bookProgressPercent(chapters, chapterIndex, characterOffset) {
+  if (!chapters?.length) return 0
+  const total = chapters.reduce((sum, chapter) => sum + chapter.text.length, 0)
+  if (!total) return 0
+  const before = chapters
+    .slice(0, Math.max(0, chapterIndex))
+    .reduce((sum, chapter) => sum + chapter.text.length, 0)
+  return Math.min(100, Math.max(0, Math.round(((before + characterOffset) / total) * 100)))
+}
+
 export default function App() {
   const [document, setDocument] = useState(null)
   const [paste, setPaste] = useState('')
@@ -86,6 +97,8 @@ export default function App() {
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [nudgeOpen, setNudgeOpen] = useState(false)
   const [genStats, setGenStats] = useState(null)
+  const [selectedChapterIndex, setSelectedChapterIndex] = useState(0)
+  const [resumePosition, setResumePosition] = useState(null)
 
   const audioCtxRef = useRef(null)
   const playbackRef = useRef(null) // { setSpeed, stop, done } from either engine
@@ -95,14 +108,43 @@ export default function App() {
   const runtimeRef = useRef(null) // cached chooseRuntime() result
   const listenedChunksRef = useRef(0)
   const statsThrottleRef = useRef(0)
+  const modelProgressThrottleRef = useRef(0)
+  const modelLoadStartedRef = useRef(false)
   const firstPlayTrackedRef = useRef(false)
+  const playbackRunRef = useRef(0)
 
-  const speakText = useMemo(() => {
-    if (!document?.text) return ''
-    return optimizeForSpeech ? formatForTts(document.text) : document.text
+  const isEpub = document?.kind === 'epub'
+  const chunkRecords = useMemo(() => {
+    if (!document?.text) return []
+
+    if (document.kind === 'epub') {
+      return (document.chapters || []).flatMap((chapter, chapterIndex) => {
+        const speechText = optimizeForSpeech ? formatForTts(chapter.text) : chapter.text
+        return chunkTextWithOffsets(speechText).map((chunk) => ({
+          ...chunk,
+          chapterId: chapter.id,
+          chapterIndex,
+        }))
+      })
+    }
+
+    const speechText = optimizeForSpeech ? formatForTts(document.text) : document.text
+    return chunkTextWithOffsets(speechText).map((chunk) => ({
+      ...chunk,
+      chapterId: null,
+      chapterIndex: 0,
+    }))
   }, [document, optimizeForSpeech])
 
-  const chunks = useMemo(() => (speakText ? chunkText(speakText) : []), [speakText])
+  const chunks = useMemo(() => chunkRecords.map((chunk) => chunk.text), [chunkRecords])
+
+  const chapterStartIndexes = useMemo(() => {
+    const starts = new Map()
+    chunkRecords.forEach((chunk, index) => {
+      if (!starts.has(chunk.chapterIndex)) starts.set(chunk.chapterIndex, index)
+    })
+    return starts
+  }, [chunkRecords])
 
   useEffect(() => {
     let cancelled = false
@@ -118,7 +160,11 @@ export default function App() {
       const cached = await isModelCached(runtime)
       setDisplaySize(runtime.displaySize || manifest?.displaySize || DEFAULT_DISPLAY_SIZE)
       setDeviceLabel(runtime.note)
-      setModelStatus(cached ? 'ready' : 'needed')
+      // A user can reach the download button before this first capability
+      // probe finishes. Once an explicit load starts, its result is the only
+      // source of truth for model status; the late cache probe must not reset
+      // the UI after a successful first download.
+      if (!modelLoadStartedRef.current) setModelStatus(cached ? 'ready' : 'needed')
       setCapabilityMsg(cap)
       setWebSpeechVoices(webSpeechVoiceList)
       const preferred = preferredDefaultVoice(webSpeechVoiceList)
@@ -147,20 +193,34 @@ export default function App() {
     return runtimeRef.current
   }, [])
 
+  const reportModelProgress = useCallback((info) => {
+    if (info?.status !== 'progress' || typeof info.progress !== 'number') return false
+    const raw = info.progress
+    const percent = raw <= 1 ? raw * 100 : raw
+    const now = performance.now()
+    // Model downloads can emit hundreds of byte-level events. Limiting UI
+    // updates keeps a loaded EPUB preview mounted and responsive on the
+    // first, most memory-intensive download.
+    if (percent < 100 && now - modelProgressThrottleRef.current < 100) return true
+    modelProgressThrottleRef.current = now
+    setModelProgress(percent)
+    return true
+  }, [])
+
   const handleDownload = useCallback(async () => {
+    modelLoadStartedRef.current = true
     track(Events.MODEL_DOWNLOAD_START)
     setModelError(null)
     setModelStatus('downloading')
     setModelProgress(0)
+    modelProgressThrottleRef.current = 0
     try {
       const runtime = await ensureRuntime()
       const meta = await loadKokoro({
         device: runtime.device,
         dtype: runtime.dtype,
         onProgress: (info) => {
-          if (info?.status === 'progress' && typeof info.progress === 'number') {
-            const raw = info.progress
-            setModelProgress(raw <= 1 ? raw * 100 : raw)
+          if (reportModelProgress(info)) {
             setModelStatus('downloading')
           } else if (info?.status === 'done' || info?.status === 'ready') {
             setModelProgress(100)
@@ -179,29 +239,29 @@ export default function App() {
       setModelStatus('needed')
       setModelError(err?.message || 'Download failed. Check your connection and try again.')
     }
-  }, [ensureRuntime, voiceId])
+  }, [ensureRuntime, reportModelProgress, voiceId])
 
   const ensureEngine = useCallback(async () => {
     const alreadyLoaded = Boolean(getLoadedMeta().device)
+    modelLoadStartedRef.current = true
     if (!alreadyLoaded) setModelStatus((s) => (s === 'ready' ? 'loading' : 'downloading'))
+    modelProgressThrottleRef.current = 0
     const runtime = await ensureRuntime()
     const meta = await loadKokoro({
       device: runtime.device,
       dtype: runtime.dtype,
       onProgress: (info) => {
-        if (info?.status === 'progress' && typeof info.progress === 'number') {
-          const raw = info.progress
-          setModelProgress(raw <= 1 ? raw * 100 : raw)
-        }
+        reportModelProgress(info)
       },
     })
     await warmUp(voiceId)
     setDeviceLabel(meta.device === 'webgpu' ? 'WebGPU' : 'WASM')
     setModelStatus('ready')
     return meta
-  }, [ensureRuntime, voiceId])
+  }, [ensureRuntime, reportModelProgress, voiceId])
 
   const stopPlayback = useCallback(() => {
+    playbackRunRef.current += 1
     stoppedRef.current = true
     playbackRef.current?.stop()
     playbackRef.current = null
@@ -214,6 +274,46 @@ export default function App() {
       /* ignore */
     }
   }, [])
+
+  const applyDocument = useCallback((nextDocument) => {
+    setDocument(nextDocument)
+    setGenStats(null)
+    setActiveChunk(-1)
+    setSelectedChapterIndex(0)
+    setResumePosition(null)
+
+    if (nextDocument?.kind !== 'epub' || !nextDocument.meta?.fingerprint) return
+    const saved = loadEpubProgress(nextDocument.meta.fingerprint)
+    if (!saved) return
+
+    const chapterIndex = nextDocument.chapters?.findIndex((chapter) => chapter.id === saved.chapterId)
+    if (chapterIndex == null || chapterIndex < 0) return
+    setSelectedChapterIndex(chapterIndex)
+    setResumePosition({ ...saved, chapterIndex })
+  }, [])
+
+  const handlePlaybackChunkStart = useCallback(
+    (index, playbackRun) => {
+      if (playbackRun != null && playbackRunRef.current !== playbackRun) return
+      setActiveChunk(index)
+      if (document?.kind !== 'epub' || !document.meta?.fingerprint) return
+      const chunk = chunkRecords[index]
+      if (!chunk?.chapterId) return
+      saveEpubProgress(document.meta.fingerprint, {
+        chapterId: chunk.chapterId,
+        chapterIndex: chunk.chapterIndex,
+        characterOffset: chunk.startOffset,
+        optimized: optimizeForSpeech,
+      })
+    },
+    [chunkRecords, document, optimizeForSpeech],
+  )
+
+  const markEpubPlaybackComplete = useCallback(() => {
+    if (document?.kind !== 'epub' || !document.meta?.fingerprint) return
+    clearEpubProgress(document.meta.fingerprint)
+    setResumePosition(null)
+  }, [document])
 
   const handleRemoveModel = useCallback(async () => {
     const ok = window.confirm(
@@ -247,9 +347,10 @@ export default function App() {
   }, [])
 
   const runWebSpeech = useCallback(
-    async (startIndex) => {
+    async (startIndex, playbackRun) => {
       const playChunks = chunks.slice(startIndex)
       const voice = webSpeechVoices.find((v) => v.voiceURI === webSpeechVoiceURI) || null
+      const isCurrentRun = () => playbackRunRef.current === playbackRun
 
       try {
         const playback = runWebSpeechPlayback({
@@ -257,37 +358,45 @@ export default function App() {
           voice,
           initialRate: speedRef.current,
           handlers: {
-            onChunkStart: (i) => setActiveChunk(startIndex + i),
+            onChunkStart: (i) => handlePlaybackChunkStart(startIndex + i, playbackRun),
             onProgress: (info) => {
-              listenedChunksRef.current = info.chunksDone
+              if (isCurrentRun()) listenedChunksRef.current = info.chunksDone
             },
           },
         })
         playbackRef.current = playback
-        await playback.done
-        if (!stoppedRef.current) {
+        const result = await playback.done
+        if (result.error && isCurrentRun()) {
+          setPlayError(`Playback failed: ${result.error}.`)
+        }
+        if (!stoppedRef.current && result.completed && isCurrentRun()) {
+          markEpubPlaybackComplete()
           setActiveChunk(-1)
           maybeShowNudge()
         }
       } catch (err) {
         console.error(err)
-        setPlayError(err?.message || 'Playback failed.')
+        if (isCurrentRun()) setPlayError(err?.message || 'Playback failed.')
       } finally {
-        playbackRef.current = null
-        setPlaying(false)
-        setPaused(false)
+        if (isCurrentRun()) {
+          playbackRef.current = null
+          setPlaying(false)
+          setPaused(false)
+        }
       }
     },
-    [chunks, maybeShowNudge, webSpeechVoiceURI, webSpeechVoices],
+    [chunks, handlePlaybackChunkStart, markEpubPlaybackComplete, maybeShowNudge, webSpeechVoiceURI, webSpeechVoices],
   )
 
   const runKokoro = useCallback(
-    async (startIndex) => {
+    async (startIndex, playbackRun) => {
       const voice = voiceById(voiceId)
       const playChunks = chunks.slice(startIndex)
-      const shouldCollectAudio = downloadAudioRef.current
+      const shouldCollectAudio = downloadAudioRef.current && document?.kind !== 'epub'
+      const isCurrentRun = () => playbackRunRef.current === playbackRun
 
       const pushStats = (live, partial = {}) => {
+        if (!isCurrentRun()) return
         if (live) {
           const now = performance.now()
           if (now - statsThrottleRef.current < 150) return
@@ -328,13 +437,13 @@ export default function App() {
           initialSpeed: speedRef.current,
           collectAudio: shouldCollectAudio,
           handlers: {
-            onChunkStart: (i) => setActiveChunk(startIndex + i),
+            onChunkStart: (i) => handlePlaybackChunkStart(startIndex + i, playbackRun),
             onProgress: (info) => {
-              listenedChunksRef.current = info.chunksDone
+              if (isCurrentRun()) listenedChunksRef.current = info.chunksDone
               pushStats(true, info)
             },
             onAudioCap: (info) => {
-              if (!downloadAudioRef.current || !info.audioChunks?.length) return
+              if (!isCurrentRun() || !shouldCollectAudio || !info.audioChunks?.length) return
               try {
                 downloadWav(info.audioChunks, document?.name)
                 track(Events.AUDIO_DOWNLOAD, {
@@ -362,7 +471,8 @@ export default function App() {
 
         // Skip end-of-session download if we already saved when the cap was hit.
         if (
-          downloadAudioRef.current &&
+          isCurrentRun() &&
+          shouldCollectAudio &&
           result.audioChunks?.length &&
           !result.audioDownloadedEarly
         ) {
@@ -386,47 +496,94 @@ export default function App() {
           }
         }
 
-        if (!stoppedRef.current) {
+        if (!stoppedRef.current && isCurrentRun()) {
+          markEpubPlaybackComplete()
           setActiveChunk(-1)
           maybeShowNudge()
         }
       } catch (err) {
         console.error(err)
-        setPlayError(err?.message || 'Playback failed.')
+        if (isCurrentRun()) setPlayError(err?.message || 'Playback failed.')
       } finally {
-        playbackRef.current = null
-        setPlaying(false)
-        setPaused(false)
+        if (isCurrentRun()) {
+          playbackRef.current = null
+          setPlaying(false)
+          setPaused(false)
+        }
       }
     },
-    [chunks, deviceLabel, document?.name, ensureEngine, maybeShowNudge, voiceId],
+    [
+      chunks,
+      deviceLabel,
+      document?.kind,
+      document?.name,
+      ensureEngine,
+      handlePlaybackChunkStart,
+      markEpubPlaybackComplete,
+      maybeShowNudge,
+      voiceId,
+    ],
   )
 
   const runPlayback = useCallback(
     async (startIndex = 0) => {
       setPlayError(null)
       setDownloadNote(null)
+      const playbackRun = playbackRunRef.current + 1
+      playbackRunRef.current = playbackRun
       stoppedRef.current = false
       setPlaying(true)
       setPaused(false)
 
       if (engine === 'webspeech') {
-        await runWebSpeech(startIndex)
+        await runWebSpeech(startIndex, playbackRun)
       } else {
-        await runKokoro(startIndex)
+        await runKokoro(startIndex, playbackRun)
       }
     },
     [engine, runKokoro, runWebSpeech],
   )
 
-  const onPlay = () => {
+  const startIndexForChapter = useCallback(
+    (chapterIndex) => chapterStartIndexes.get(chapterIndex) ?? 0,
+    [chapterStartIndexes],
+  )
+
+  const startIndexForResume = useCallback(
+    (position) => {
+      const chapterStart = startIndexForChapter(position?.chapterIndex || 0)
+      if (!position || position.optimized !== optimizeForSpeech) return chapterStart
+      const matchingChunk = chunkRecords.findIndex(
+        (chunk) =>
+          chunk.chapterId === position.chapterId && chunk.endOffset > position.characterOffset,
+      )
+      return matchingChunk === -1 ? chapterStart : matchingChunk
+    },
+    [chunkRecords, optimizeForSpeech, startIndexForChapter],
+  )
+
+  const startListening = (startIndex) => {
     if (!chunks.length) return
     if (!firstPlayTrackedRef.current) {
       firstPlayTrackedRef.current = true
       track(Events.FIRST_PLAY, { engine })
     }
     listenedChunksRef.current = 0
-    runPlayback(0)
+    runPlayback(startIndex)
+  }
+
+  const resumeListening = (position) => {
+    if (!position) return false
+    setSelectedChapterIndex(position.chapterIndex)
+    setResumePosition(null)
+    track(Events.EPUB_RESUME, { chapter: position.chapterIndex + 1 })
+    startListening(startIndexForResume(position))
+    return true
+  }
+
+  const onPlay = () => {
+    if (isEpub && resumeListening(resumePosition)) return
+    startListening(isEpub ? startIndexForChapter(selectedChapterIndex) : 0)
   }
 
   const onPause = async () => {
@@ -469,6 +626,26 @@ export default function App() {
     maybeShowNudge()
   }
 
+  const onChapterChange = useCallback((chapterIndex) => {
+    if (!isEpub || chapterIndex === selectedChapterIndex) return
+    stopPlayback()
+    setSelectedChapterIndex(chapterIndex)
+    setResumePosition(null)
+    setPlayError(null)
+  }, [isEpub, selectedChapterIndex, stopPlayback])
+
+  const onResumeBook = () => {
+    resumeListening(resumePosition)
+  }
+
+  const onStartBookOver = () => {
+    if (document?.kind === 'epub') clearEpubProgress(document.meta?.fingerprint)
+    stopPlayback()
+    setSelectedChapterIndex(0)
+    setResumePosition(null)
+    setPlayError(null)
+  }
+
   const onEngineChange = (next) => {
     if (next === engine) return
     stopPlayback()
@@ -509,12 +686,13 @@ export default function App() {
     stopPlayback()
     try {
       const doc = await extractFromFile(file)
-      setDocument(doc)
-      setGenStats(null)
+      applyDocument(doc)
       track(Events.DOCUMENT_LOADED, { source: 'file', kind: doc.kind })
     } catch (err) {
       setIngestError(err?.message || 'Could not read that file.')
       setDocument(null)
+      setSelectedChapterIndex(0)
+      setResumePosition(null)
     } finally {
       setIngestBusy(false)
     }
@@ -526,8 +704,7 @@ export default function App() {
     stopPlayback()
     try {
       const doc = extractFromPaste(paste)
-      setDocument(doc)
-      setGenStats(null)
+      applyDocument(doc)
       track(Events.DOCUMENT_LOADED, { source: 'paste', kind: doc.kind })
     } catch (err) {
       setIngestError(err?.message || 'Nothing to read.')
@@ -538,8 +715,7 @@ export default function App() {
     setIngestError(null)
     stopPlayback()
     const doc = sampleDocument()
-    setDocument(doc)
-    setGenStats(null)
+    applyDocument(doc)
     track(Events.DOCUMENT_LOADED, { source: 'sample', kind: doc.kind })
   }
 
@@ -578,8 +754,7 @@ export default function App() {
             stopPlayback()
             try {
               const doc = extractFromPaste(text)
-              setDocument(doc)
-              setGenStats(null)
+              applyDocument(doc)
               track(Events.DOCUMENT_LOADED, { source: 'share_target', kind: doc.kind })
             } catch (err) {
               setIngestError(err?.message || 'Nothing to read.')
@@ -598,9 +773,45 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const activeChunkRecord = activeChunk >= 0 ? chunkRecords[activeChunk] : null
+  const previewChapterIndex = isEpub ? activeChunkRecord?.chapterIndex ?? selectedChapterIndex : 0
+  const previewChapterStartIndex = chapterStartIndexes.get(previewChapterIndex) ?? 0
+  const previewChunks = useMemo(() => {
+    if (!isEpub) return chunks
+    return chunkRecords
+      .filter((chunk) => chunk.chapterIndex === previewChapterIndex)
+      .map((chunk) => chunk.text)
+  }, [chunkRecords, chunks, isEpub, previewChapterIndex])
+  const previewActiveChunkIndex = isEpub
+    ? activeChunkRecord
+      ? activeChunk - previewChapterStartIndex
+      : -1
+    : activeChunk
+  const currentEpubChunk =
+    activeChunkRecord || chunkRecords[chapterStartIndexes.get(selectedChapterIndex) ?? 0]
+  const currentEpubPercent = isEpub
+    ? bookProgressPercent(
+        document.chapters,
+        currentEpubChunk?.chapterIndex ?? selectedChapterIndex,
+        currentEpubChunk?.startOffset ?? 0,
+      )
+    : 0
+  const resumeChapter = isEpub && resumePosition ? document.chapters?.[resumePosition.chapterIndex] : null
+  const resumePercent = resumePosition
+    ? bookProgressPercent(document?.chapters, resumePosition.chapterIndex, resumePosition.characterOffset)
+    : 0
+  const resumeAtChapterStart = Boolean(
+    resumePosition && resumePosition.optimized !== optimizeForSpeech,
+  )
+  const chapterNavigationLabel = isEpub
+    ? `Chapter ${previewChapterIndex + 1} of ${document.chapters.length} · ${currentEpubPercent}% through book`
+    : null
+
   const progressLabel =
     playing || paused
-      ? `Chunk ${Math.max(activeChunk, 0) + 1} of ${chunks.length}${paused ? ' / paused' : ''}`
+      ? isEpub
+        ? `Chapter ${(currentEpubChunk?.chapterIndex ?? selectedChapterIndex) + 1} of ${document.chapters.length} · ${currentEpubPercent}%${paused ? ' / paused' : ''}`
+        : `Chunk ${Math.max(activeChunk, 0) + 1} of ${chunks.length}${paused ? ' / paused' : ''}`
       : null
 
   // Whether audio is collected is fixed for the life of a playback session, so
@@ -648,7 +859,7 @@ export default function App() {
             Junco <em>Reader</em>
           </h1>
           <p className="jr-lede">
-            Read any PDF out loud in your browser. Free, private, on-device.
+            Read PDFs, EPUBs, and text out loud in your browser. Free, private, on-device.
           </p>
         </section>
 
@@ -692,9 +903,39 @@ export default function App() {
           <section className="jr-workspace">
             <DocumentPreview
               document={document}
-              chunks={chunks}
-              activeChunkIndex={activeChunk}
+              chunks={previewChunks}
+              activeChunkIndex={previewActiveChunkIndex}
+              chapterIndex={previewChapterIndex}
+              onChapterChange={onChapterChange}
+              bookProgressLabel={chapterNavigationLabel}
             />
+
+            {isEpub && resumePosition && resumeChapter ? (
+              <aside className="jr-resume-card" aria-label="Saved audiobook position">
+                <div>
+                  <p className="jr-resume-kicker">Saved listening position</p>
+                  <p className="jr-resume-copy">
+                    Resume at chapter {resumePosition.chapterIndex + 1}, {resumeChapter.title}
+                    {resumeAtChapterStart
+                      ? ' — speech optimization changed, so playback will begin at this chapter’s start.'
+                      : ` — about ${resumePercent}% through the book.`}
+                  </p>
+                </div>
+                <div className="jr-resume-actions">
+                  <button
+                    type="button"
+                    className="jr-btn jr-btn-primary"
+                    onClick={onResumeBook}
+                    disabled={!engineReady}
+                  >
+                    Resume
+                  </button>
+                  <button type="button" className="jr-btn jr-btn-ghost" onClick={onStartBookOver}>
+                    Start over
+                  </button>
+                </div>
+              </aside>
+            ) : null}
 
             <div className="jr-controls">
               <div className="jr-controls-row">
@@ -738,7 +979,7 @@ export default function App() {
               ) : null}
 
               <div className="jr-options" role="group" aria-label="Generation options">
-                {engine === 'kokoro' ? (
+                {engine === 'kokoro' && !isEpub ? (
                   <label
                     className={`jr-option ${downloadAudioLocked ? 'is-disabled' : ''}`}
                     title={

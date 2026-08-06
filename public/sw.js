@@ -8,7 +8,9 @@
  * never touch this one.
  */
 
-const SHELL_CACHE = 'junco-reader-shell-v1'
+// Bump when a release changes the app shell so installed PWAs fetch the new
+// input support instead of continuing to serve a previously cached entry.
+const SHELL_CACHE = 'junco-reader-shell-v2'
 const SHARE_CACHE = 'junco-reader-share-v1'
 
 /**

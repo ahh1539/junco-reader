@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react'
 import './DropZone.css'
 
-const ACCEPT = '.pdf,.txt,.md,.markdown,text/plain,application/pdf,text/markdown'
+const ACCEPT =
+  '.pdf,.epub,.txt,.md,.markdown,text/plain,application/pdf,application/epub+zip,text/markdown'
 
 export default function DropZone({ onFile, disabled }) {
   const [dragging, setDragging] = useState(false)
@@ -41,7 +42,7 @@ export default function DropZone({ onFile, disabled }) {
       <span className="jr-drop-mark" aria-hidden="true">
         ↘
       </span>
-      <span className="jr-drop-title">Drop a PDF, TXT, or Markdown file</span>
+      <span className="jr-drop-title">Drop a PDF, EPUB, TXT, or Markdown file</span>
       <span className="jr-drop-sub">or click to browse. Files never leave this browser.</span>
     </label>
   )

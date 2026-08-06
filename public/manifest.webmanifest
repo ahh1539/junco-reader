@@ -1,7 +1,7 @@
 {
   "name": "Junco Reader",
   "short_name": "Junco Reader",
-  "description": "Free, private, on-device text-to-speech for PDFs, Markdown, and text. Runs entirely in your browser.",
+  "description": "Free, private, on-device text-to-speech for DRM-free EPUBs, PDFs, Markdown, and text. Runs entirely in your browser.",
   "id": "/",
   "start_url": "/?source=pwa",
   "scope": "/",
@@ -26,6 +26,7 @@
       "action": "/",
       "accept": {
         "application/pdf": [".pdf"],
+        "application/epub+zip": [".epub"],
         "text/plain": [".txt"],
         "text/markdown": [".md", ".markdown"]
       }
@@ -44,9 +45,11 @@
           "name": "shared_file",
           "accept": [
             "application/pdf",
+            "application/epub+zip",
             "text/plain",
             "text/markdown",
             ".pdf",
+            ".epub",
             ".txt",
             ".md",
             ".markdown"

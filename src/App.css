@@ -215,6 +215,39 @@
   gap: 1.25rem;
 }
 
+.jr-resume-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  padding: 1rem 1.1rem;
+  border-left: 3px solid var(--jn-accent);
+  background: rgba(189, 106, 48, 0.08);
+}
+
+.jr-resume-kicker {
+  margin-bottom: 0.25rem;
+  color: var(--jn-accent-ink);
+  font-family: var(--jn-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jr-resume-copy {
+  max-width: 52ch;
+  color: var(--jn-ink-2);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.jr-resume-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .jr-workspace {
     animation: jr-hero-in 0.55s var(--jn-ease) both;

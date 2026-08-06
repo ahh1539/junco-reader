@@ -211,6 +211,7 @@ describe('runWebSpeechPlayback', () => {
     expect(result.chunksDone).toBe(3)
     expect(result.charsSpoken).toBe('one'.length + 'two'.length + 'three'.length)
     expect(result.ttfaMs).not.toBeNull()
+    expect(result.completed).toBe(true)
   })
 
   it('applies the selected voice and current rate to each utterance', () => {
@@ -242,7 +243,7 @@ describe('runWebSpeechPlayback', () => {
     stop()
     expect(synth.speaking).toBe(false)
 
-    await expect(done).resolves.toMatchObject({ chunksDone: 0 })
+    await expect(done).resolves.toMatchObject({ chunksDone: 0, completed: false })
     // No further utterances queued after stop.
     expect(instances).toHaveLength(1)
   })
@@ -257,6 +258,7 @@ describe('runWebSpeechPlayback', () => {
 
     const result = await done
     expect(result.chunksDone).toBe(0)
+    expect(result).toMatchObject({ completed: false, error: 'synthesis-failed' })
     expect(instances).toHaveLength(1) // never queued chunk two
   })
 })

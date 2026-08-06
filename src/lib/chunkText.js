@@ -45,10 +45,13 @@ function hardSplit(text, maxChars) {
   return out
 }
 
-export function chunkText(raw) {
-  const text = String(raw || '')
+function normalizeForChunking(raw) {
+  return String(raw || '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function chunkNormalizedText(text) {
   if (!text) return []
 
   const sentences = splitSentences(text)
@@ -85,4 +88,33 @@ export function chunkText(raw) {
   }
   if (buf) chunks.push(buf)
   return chunks
+}
+
+export function chunkText(raw) {
+  return chunkNormalizedText(normalizeForChunking(raw))
+}
+
+/**
+ * Chunk text while retaining offsets into the normalized text used for speech.
+ * The offsets let long-form readers persist a useful resume point without
+ * storing the book itself.
+ *
+ * @param {string} raw
+ * @returns {{ text: string, startOffset: number, endOffset: number }[]}
+ */
+export function chunkTextWithOffsets(raw) {
+  const normalized = normalizeForChunking(raw)
+  const chunks = chunkNormalizedText(normalized)
+  let cursor = 0
+
+  return chunks.map((text) => {
+    // Each chunk comes directly from the normalized source. Search from the
+    // previous end rather than relying on unique text -- repeated sentences
+    // are common in books.
+    const foundAt = normalized.indexOf(text, cursor)
+    const startOffset = foundAt === -1 ? cursor : foundAt
+    const endOffset = startOffset + text.length
+    cursor = endOffset
+    return { text, startOffset, endOffset }
+  })
 }

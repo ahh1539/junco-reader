@@ -34,6 +34,64 @@
   align-self: flex-end;
 }
 
+.jr-chapter-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--jn-line-2);
+  background: rgba(251, 248, 237, 0.48);
+}
+
+.jr-chapter-select-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: min(100%, 22rem);
+  color: var(--jn-soft);
+  font-family: var(--jn-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jr-chapter-select {
+  width: min(100%, 28rem);
+  min-height: 2.4rem;
+  border: 1px solid var(--jn-line);
+  border-radius: 0;
+  padding: 0.4rem 2rem 0.4rem 0.6rem;
+  background: var(--jn-paper);
+  color: var(--jn-ink);
+  font-family: var(--jn-serif);
+  font-size: 0.95rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.jr-chapter-select:focus {
+  outline: 2px solid rgba(189, 106, 48, 0.35);
+  outline-offset: 1px;
+}
+
+.jr-chapter-progress {
+  margin: 0;
+  color: var(--jn-ink-2);
+  font-family: var(--jn-mono);
+  font-size: 0.72rem;
+}
+
+.jr-doc-chapter-title {
+  margin-bottom: 0.65rem;
+  color: var(--jn-ink);
+  font-family: var(--jn-serif);
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
 .jr-doc-body {
   max-height: min(52vh, 520px);
   overflow: auto;

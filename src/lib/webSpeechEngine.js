@@ -168,7 +168,7 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
   })
 
   if (!chunks.length || !isWebSpeechSupported()) {
-    resolveDone({ chunksDone: 0, charsSpoken: 0, ttfaMs: null })
+    resolveDone({ chunksDone: 0, charsSpoken: 0, ttfaMs: null, completed: false, error: null })
     return { setSpeed: () => {}, stop: () => {}, done }
   }
 
@@ -181,6 +181,8 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
   let chunksDone = 0
   let firstAudioAt = null
   let keepAliveTimer = null
+  let completed = false
+  let playbackError = null
   const sessionStart = performance.now()
 
   const clearKeepAlive = () => {
@@ -198,12 +200,15 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
       chunksDone,
       charsSpoken,
       ttfaMs: firstAudioAt != null ? firstAudioAt - sessionStart : null,
+      completed,
+      error: playbackError,
     })
   }
 
   function speakNext() {
     if (aborted) return
     if (index >= chunks.length) {
+      completed = true
       settle()
       return
     }
@@ -247,6 +252,7 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
       // Expected byproducts of stop(); not real failures.
       if (e.error === 'interrupted' || e.error === 'canceled') return
       aborted = true
+      playbackError = e.error || 'speech synthesis error'
       settle()
     }
 
