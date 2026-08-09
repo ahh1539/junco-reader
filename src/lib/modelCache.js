@@ -72,16 +72,30 @@ export async function isModelCached(runtime = null) {
     ? weightUrlForDtype(runtime.dtype)
     : null
 
-  const flagged =
-    typeof localStorage !== 'undefined' && localStorage.getItem(READY_KEY) === '1'
+  let flagged = false
+  try {
+    flagged = typeof localStorage !== 'undefined' && localStorage.getItem(READY_KEY) === '1'
+  } catch {
+    /* Blocked storage should not prevent a direct Cache API check. */
+  }
 
   if (targetUrl) {
     const hit = await cacheHasUrl(targetUrl)
     if (hit) {
-      localStorage.setItem(READY_KEY, '1')
+      try {
+        localStorage.setItem(READY_KEY, '1')
+      } catch {
+        /* ignore */
+      }
       return true
     }
-    if (flagged) localStorage.removeItem(READY_KEY)
+    if (flagged) {
+      try {
+        localStorage.removeItem(READY_KEY)
+      } catch {
+        /* ignore */
+      }
+    }
     return false
   }
 
@@ -89,12 +103,20 @@ export async function isModelCached(runtime = null) {
     if (!('caches' in window)) return true
     const hit = await cacheHasWeights()
     if (hit) return true
-    localStorage.removeItem(READY_KEY)
+    try {
+      localStorage.removeItem(READY_KEY)
+    } catch {
+      /* ignore */
+    }
     return false
   }
 
   if (await cacheHasWeights()) {
-    localStorage.setItem(READY_KEY, '1')
+    try {
+      localStorage.setItem(READY_KEY, '1')
+    } catch {
+      /* ignore */
+    }
     return true
   }
   return false

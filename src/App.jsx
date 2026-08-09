@@ -23,7 +23,12 @@ import {
   isModelCached,
   loadManifest,
 } from './lib/modelCache'
-import { chooseRuntime } from './lib/kokoroEngine'
+import {
+  chooseRuntime,
+  readCompatibilityMode,
+  runtimeFromMeta,
+  writeCompatibilityMode,
+} from './lib/kokoroEngine'
 import {
   getLoadedMeta,
   loadKokoro,
@@ -86,6 +91,8 @@ export default function App() {
   const [displaySize, setDisplaySize] = useState(DEFAULT_DISPLAY_SIZE)
   const [deviceLabel, setDeviceLabel] = useState(null)
   const [removingModel, setRemovingModel] = useState(false)
+  const [compatibilityMode, setCompatibilityMode] = useState(() => readCompatibilityMode())
+  const [switchingRuntime, setSwitchingRuntime] = useState(false)
 
   const [playing, setPlaying] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -110,6 +117,8 @@ export default function App() {
   const statsThrottleRef = useRef(0)
   const modelProgressThrottleRef = useRef(0)
   const modelLoadStartedRef = useRef(false)
+  const runtimeSwitchingRef = useRef(false)
+  const runtimeVersionRef = useRef(0)
   const firstPlayTrackedRef = useRef(false)
   const playbackRunRef = useRef(0)
 
@@ -148,16 +157,30 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
+    const initialRuntimeVersion = runtimeVersionRef.current
     ;(async () => {
       const [manifest, cap, runtime, webSpeechVoiceList] = await Promise.all([
         loadManifest(),
         getCapabilityMessage(),
-        chooseRuntime(),
+        chooseRuntime({ compatibilityMode: readCompatibilityMode() }),
         getWebSpeechVoices(),
       ])
       if (cancelled) return
+
+      // These results are independent of the Natural-voice runtime. Populate
+      // them even when the user starts a model load before the initial cache
+      // probe finishes so Instant voices remain available.
+      setCapabilityMsg(cap)
+      setWebSpeechVoices(webSpeechVoiceList)
+      const preferred = preferredDefaultVoice(webSpeechVoiceList)
+      if (preferred) setWebSpeechVoiceURI(preferred.voiceURI)
+
+      if (runtimeVersionRef.current !== initialRuntimeVersion || modelLoadStartedRef.current) return
       runtimeRef.current = runtime
       const cached = await isModelCached(runtime)
+      if (cancelled || runtimeVersionRef.current !== initialRuntimeVersion || modelLoadStartedRef.current) {
+        return
+      }
       setDisplaySize(runtime.displaySize || manifest?.displaySize || DEFAULT_DISPLAY_SIZE)
       setDeviceLabel(runtime.note)
       // A user can reach the download button before this first capability
@@ -165,10 +188,6 @@ export default function App() {
       // source of truth for model status; the late cache probe must not reset
       // the UI after a successful first download.
       if (!modelLoadStartedRef.current) setModelStatus(cached ? 'ready' : 'needed')
-      setCapabilityMsg(cap)
-      setWebSpeechVoices(webSpeechVoiceList)
-      const preferred = preferredDefaultVoice(webSpeechVoiceList)
-      if (preferred) setWebSpeechVoiceURI(preferred.voiceURI)
     })()
     return () => {
       cancelled = true
@@ -208,6 +227,7 @@ export default function App() {
   }, [])
 
   const handleDownload = useCallback(async () => {
+    if (runtimeSwitchingRef.current || removingModel) return
     modelLoadStartedRef.current = true
     track(Events.MODEL_DOWNLOAD_START)
     setModelError(null)
@@ -230,16 +250,19 @@ export default function App() {
         },
       })
       await warmUp(voiceId)
-      setDeviceLabel(meta.device === 'webgpu' ? 'WebGPU' : 'WASM')
+      const actualRuntime = runtimeFromMeta(meta)
+      runtimeRef.current = actualRuntime
+      setDisplaySize(actualRuntime.displaySize)
+      setDeviceLabel(actualRuntime.note)
       setModelProgress(100)
       setModelStatus('ready')
-      track(Events.MODEL_DOWNLOAD_COMPLETE, { device: meta.device, dtype: runtime.dtype })
+      track(Events.MODEL_DOWNLOAD_COMPLETE, { device: meta.device, dtype: meta.dtype })
     } catch (err) {
       console.error(err)
       setModelStatus('needed')
       setModelError(err?.message || 'Download failed. Check your connection and try again.')
     }
-  }, [ensureRuntime, reportModelProgress, voiceId])
+  }, [ensureRuntime, removingModel, reportModelProgress, voiceId])
 
   const ensureEngine = useCallback(async () => {
     const alreadyLoaded = Boolean(getLoadedMeta().device)
@@ -255,7 +278,10 @@ export default function App() {
       },
     })
     await warmUp(voiceId)
-    setDeviceLabel(meta.device === 'webgpu' ? 'WebGPU' : 'WASM')
+    const actualRuntime = runtimeFromMeta(meta)
+    runtimeRef.current = actualRuntime
+    setDisplaySize(actualRuntime.displaySize)
+    setDeviceLabel(actualRuntime.note)
     setModelStatus('ready')
     return meta
   }, [ensureRuntime, reportModelProgress, voiceId])
@@ -316,6 +342,7 @@ export default function App() {
   }, [document])
 
   const handleRemoveModel = useCallback(async () => {
+    if (runtimeSwitchingRef.current) return
     const ok = window.confirm(
       'Remove the voice model from this device? You can download it again anytime. Your documents are not stored and will not be affected.',
     )
@@ -324,6 +351,8 @@ export default function App() {
     setRemovingModel(true)
     setModelError(null)
     try {
+      runtimeVersionRef.current += 1
+      modelLoadStartedRef.current = true
       stopPlayback()
       unloadKokoro()
       await clearModelCache()
@@ -337,6 +366,52 @@ export default function App() {
       setRemovingModel(false)
     }
   }, [stopPlayback])
+
+  const handleCompatibilityModeChange = useCallback(
+    async (enabled) => {
+      if (
+        enabled === compatibilityMode ||
+        runtimeSwitchingRef.current ||
+        removingModel ||
+        modelStatus === 'downloading' ||
+        modelStatus === 'loading' ||
+        playing ||
+        paused
+      ) {
+        return
+      }
+
+      runtimeSwitchingRef.current = true
+      runtimeVersionRef.current += 1
+      setSwitchingRuntime(true)
+      setCompatibilityMode(enabled)
+      writeCompatibilityMode(enabled)
+      stopPlayback()
+      unloadKokoro()
+      runtimeRef.current = null
+      setGenStats(null)
+      setModelError(null)
+      setModelProgress(0)
+      setModelStatus('loading')
+
+      try {
+        const runtime = await chooseRuntime({ compatibilityMode: enabled })
+        runtimeRef.current = runtime
+        const cached = await isModelCached(runtime)
+        setDisplaySize(runtime.displaySize)
+        setDeviceLabel(runtime.note)
+        setModelStatus(cached ? 'ready' : 'needed')
+      } catch (err) {
+        console.error(err)
+        setModelStatus('needed')
+        setModelError(err?.message || 'Could not switch voice mode.')
+      } finally {
+        runtimeSwitchingRef.current = false
+        setSwitchingRuntime(false)
+      }
+    },
+    [compatibilityMode, modelStatus, paused, playing, removingModel, stopPlayback],
+  )
 
   const maybeShowNudge = useCallback(() => {
     if (hasSeenNudge()) return
@@ -406,8 +481,8 @@ export default function App() {
         setGenStats({
           live,
           voice: voice.displayName,
-          device: meta.device === 'webgpu' ? 'WebGPU' : meta.device === 'wasm' ? 'WASM' : deviceLabel,
-          dtype: meta.dtype || 'q8',
+          device: meta.device === 'webgpu' ? 'WebGPU' : meta.device === 'wasm' ? 'WASM' : null,
+          dtype: meta.dtype || null,
           speed: speedRef.current,
           chunksDone: partial.chunksDone ?? 0,
           chunksTotal: chunks.length,
@@ -514,7 +589,6 @@ export default function App() {
     },
     [
       chunks,
-      deviceLabel,
       document?.kind,
       document?.name,
       ensureEngine,
@@ -975,6 +1049,17 @@ export default function App() {
                   onDownload={handleDownload}
                   onRemove={handleRemoveModel}
                   removing={removingModel}
+                  disabled={switchingRuntime || removingModel}
+                  compatibilityMode={compatibilityMode}
+                  compatibilityDisabled={
+                    switchingRuntime ||
+                    removingModel ||
+                    playing ||
+                    paused ||
+                    modelStatus === 'downloading' ||
+                    modelStatus === 'loading'
+                  }
+                  onCompatibilityModeChange={handleCompatibilityModeChange}
                 />
               ) : null}
 

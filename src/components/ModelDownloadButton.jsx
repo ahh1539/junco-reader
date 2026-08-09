@@ -9,8 +9,28 @@ export default function ModelDownloadButton({
   onDownload,
   onRemove,
   removing = false,
+  disabled = false,
+  compatibilityMode = false,
+  compatibilityDisabled = false,
+  onCompatibilityModeChange,
 }) {
   const pct = Math.round(Math.min(100, Math.max(0, progress || 0)))
+  const compatibilityControl = onCompatibilityModeChange ? (
+    <label className={`jr-model-compat ${compatibilityDisabled ? 'is-disabled' : ''}`}>
+      <input
+        type="checkbox"
+        checked={compatibilityMode}
+        disabled={compatibilityDisabled}
+        onChange={(event) => onCompatibilityModeChange(event.target.checked)}
+      />
+      <span className="jr-model-compat-copy">
+        <span className="jr-model-compat-title">Compatibility mode</span>
+        <span className="jr-model-compat-hint">
+          Use the smaller, slower voice path if Natural audio sounds distorted.
+        </span>
+      </span>
+    </label>
+  ) : null
 
   if (status === 'ready') {
     return (
@@ -31,6 +51,7 @@ export default function ModelDownloadButton({
               {removing ? 'Removing...' : 'Remove from this device'}
             </button>
           ) : null}
+          {compatibilityControl}
         </div>
       </div>
     )
@@ -46,19 +67,26 @@ export default function ModelDownloadButton({
           <span style={{ width: `${pct}%` }} />
         </div>
         <p className="jr-model-sub">{pct}% / stays on this device / free</p>
+        {compatibilityControl}
       </div>
     )
   }
 
   return (
     <div className="jr-model">
-      <button type="button" className="jr-btn jr-btn-primary jr-model-btn" onClick={onDownload}>
+      <button
+        type="button"
+        className="jr-btn jr-btn-primary jr-model-btn"
+        onClick={onDownload}
+        disabled={disabled}
+      >
         Download voice model
       </button>
       <p className="jr-model-sub">
         {displaySize} / one-time / stays on this device. Documents never leave your browser.
       </p>
       {error ? <p className="jr-model-error">{error}</p> : null}
+      {compatibilityControl}
     </div>
   )
 }

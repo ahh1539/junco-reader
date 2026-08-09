@@ -88,3 +88,44 @@
   font-size: 0.8125rem;
   color: #9a2f1a;
 }
+
+.jr-model-compat {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  max-width: 32rem;
+  margin-top: 0.35rem;
+  cursor: pointer;
+}
+
+.jr-model-compat.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.jr-model-compat input {
+  margin-top: 0.2rem;
+  accent-color: var(--jn-accent);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.jr-model-compat-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.jr-model-compat-title {
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--jn-ink-2);
+  line-height: 1.25;
+}
+
+.jr-model-compat-hint {
+  font-size: 0.75rem;
+  color: var(--jn-soft);
+  line-height: 1.35;
+}

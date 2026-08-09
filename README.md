@@ -36,6 +36,10 @@ By default the app downloads `onnx-community/Kokoro-82M-v1.0-ONNX` on the userâ€
 - **WebGPU browsers:** fp32 (~310 MB)  -  required for clean GPU audio and ~3-10Ã— faster inference
 - **WASM fallback:** q8 (~85 MB)
 
+If Natural audio sounds distorted on a particular device, enable Compatibility mode beside the
+model status. It forces the smaller client-side WASM/q8 path; the preference is stored only in
+that browser, and the WebGPU and WASM model caches may coexist.
+
 Transformers.js stores weights in the browser **Cache API** (`transformers-cache`) so revisits skip the network.
 
 Synthesis runs in a Web Worker (off the audio-scheduling thread) and keeps ~30s of audio pre-synthesized ahead of playback. Chunks are scheduled on the `AudioContext` clock back-to-back (not triggered by `onended`), so seams are gapless regardless of main-thread load. A tiny warm-up runs after load, for the selected voice, to hide cold shader/WASM compile from the first Listen.

@@ -11,13 +11,18 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.2.0",
     "fflate": "^0.8.2",
     "kokoro-js": "^1.2.1",
     "pdfjs-dist": "^6.1.200",
     "posthog-js": "^1.407.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
+  },
+  "overrides": {
+    "kokoro-js": {
+      "@huggingface/transformers": "$@huggingface/transformers"
+    }
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
