@@ -1,0 +1,78 @@
+.jr-speech-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.2rem 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  color: var(--jn-ink);
+}
+
+.jr-speech-toggle.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.jr-speech-toggle-label {
+  font-family: var(--jn-sans);
+  font-size: 0.72rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.jr-speech-toggle-track {
+  position: relative;
+  display: block;
+  width: 1.85rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--jn-line);
+  transition: background 0.2s var(--jn-ease);
+}
+
+.jr-speech-toggle.is-on .jr-speech-toggle-track {
+  background: var(--jn-accent);
+}
+
+.jr-speech-toggle-track input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.jr-speech-toggle-thumb {
+  position: absolute;
+  top: 0.12rem;
+  left: 0.12rem;
+  width: 0.81rem;
+  height: 0.81rem;
+  border-radius: 50%;
+  background: var(--jn-paper-3);
+  pointer-events: none;
+  transition: transform 0.2s var(--jn-ease);
+}
+
+.jr-speech-toggle.is-on .jr-speech-toggle-thumb {
+  transform: translateX(0.8rem);
+}
+
+.jr-speech-toggle:focus-within {
+  outline: 2px solid rgba(189, 106, 48, 0.4);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jr-speech-toggle-track,
+  .jr-speech-toggle-thumb {
+    transition: none;
+  }
+}

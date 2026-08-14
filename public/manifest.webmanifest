@@ -1,7 +1,7 @@
 {
   "name": "Junco Reader",
   "short_name": "Junco Reader",
-  "description": "Free, private, on-device text-to-speech for DRM-free EPUBs, PDFs, Markdown, and text. Runs entirely in your browser.",
+  "description": "Free, private text-to-speech for DRM-free EPUBs, PDFs, Markdown, and text. Junco does not upload or persist document contents. Instant uses local browser voices; Natural fetches model assets then synthesizes in this browser.",
   "id": "/",
   "start_url": "/?source=pwa",
   "scope": "/",

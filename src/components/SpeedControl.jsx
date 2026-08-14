@@ -1,7 +1,7 @@
 import './SpeedControl.css'
 
 /** Discrete presets only: each change cancels/reschedules one audio node. */
-export const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2]
+const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2]
 
 export default function SpeedControl({ value, onChange, disabled }) {
   return (

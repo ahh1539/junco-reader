@@ -1,13 +1,14 @@
 /**
- * Clock-scheduled, gapless TTS playback.
+ * Clock-scheduled TTS playback with intentional sentence pacing.
  *
  * Chunks are synthesized in a worker (see kokoroWorkerClient.js) up to a
  * target seconds-of-audio buffer, well ahead of what's playing. Playback
  * itself never reacts to `onended` to decide when to start the next chunk
  * (that hop costs a main-thread tick and stacks with any jank); instead each
  * chunk's AudioBufferSourceNode is scheduled on the AudioContext clock the
- * instant the previous one is scheduled, so gaps are structurally impossible
- * once two chunks are ready. `onended` is only used for UI bookkeeping.
+ * instant the previous one is scheduled. Technical joins use a tiny overlap;
+ * complete sentences receive a short, deliberate breath. `onended` is only
+ * used for UI bookkeeping.
  *
  * Speed changes apply to the live source's `playbackRate` for instant
  * feedback, then cancel-and-reschedule the one pre-scheduled "next" node
@@ -17,16 +18,33 @@
 
 import { synthesizeChunk } from './kokoroWorkerClient.js'
 import { MAX_DOWNLOAD_AUDIO_SECONDS } from './encodeWav.js'
+import { interChunkPauseSeconds } from './speechPacing.js'
 
 /** How many seconds of synthesized-but-unplayed audio to keep buffered. */
 export const BUFFER_TARGET_SECONDS = 30
 
-/** Sample amplitude below this (relative, 0-1) is treated as silence when trimming. */
-const SILENCE_THRESHOLD = 0.001 // ~ -60 dBFS
-/** Always keep at least this much padding at each edge after trimming. */
-const SILENCE_FLOOR_SEC = 0.04
+/**
+ * Kokoro pads each generate() with low-level noise, not digital zero.
+ * Peak-threshold 0.001 (-60 dBFS) leaves that padding in, so joins sound
+ * like a 0.5–1s pause. Windowed RMS at ~-36 dBFS catches it.
+ */
+const SILENCE_RMS = 0.015
+const WINDOW_SEC = 0.012
+const LEAD_FLOOR_SEC = 0.012
+const TAIL_FLOOR_SEC = 0.008
 /** Short declick fade; in-place, mutates fresh-from-worker samples. */
-const FADE_SEC = 0.003
+const FADE_SEC = 0.008
+/** Crossfade the two declick fades so residual pads don't become a hole. */
+export const JOIN_OVERLAP_SEC = 0.02
+
+function rmsAt(samples, from, win) {
+  let sum = 0
+  const end = Math.min(samples.length, from + win)
+  const count = end - from
+  if (count <= 0) return 0
+  for (let i = from; i < end; i++) sum += samples[i] * samples[i]
+  return Math.sqrt(sum / count)
+}
 
 /**
  * Trim excess leading/trailing near-silence (keeping a small floor) and
@@ -38,15 +56,20 @@ export function trimAndFade(samples, sampleRate) {
   const n = samples.length
   if (n < 32) return samples
 
-  const floor = Math.floor(SILENCE_FLOOR_SEC * sampleRate)
+  const win = Math.max(32, Math.floor(WINDOW_SEC * sampleRate))
+  const step = Math.max(16, Math.floor(win / 2))
+  const leadFloor = Math.floor(LEAD_FLOOR_SEC * sampleRate)
+  const tailFloor = Math.floor(TAIL_FLOOR_SEC * sampleRate)
 
   let start = 0
-  while (start < n && Math.abs(samples[start]) < SILENCE_THRESHOLD) start++
-  start = Math.max(0, start - floor)
+  while (start + win <= n && rmsAt(samples, start, win) < SILENCE_RMS) start += step
+  start = Math.max(0, start - leadFloor)
 
-  let end = n - 1
-  while (end > start && Math.abs(samples[end]) < SILENCE_THRESHOLD) end--
-  end = Math.min(n - 1, end + floor)
+  let end = n - win
+  while (end > start && rmsAt(samples, end, win) < SILENCE_RMS) end -= step
+  end = Math.min(n - 1, end + win + tailFloor)
+
+  if (end <= start + 32) return samples
 
   const trimmed = start === 0 && end === n - 1 ? samples : samples.subarray(start, end + 1)
 
@@ -133,6 +156,7 @@ export function runPipelinedPlayback({
   let audioTruncated = false
   let audioCapNotified = false
   let nextToSynth = 0
+  let chunksSynthesized = 0
   let synthMs = 0
   let audioSec = 0
   let charsSpoken = 0
@@ -144,6 +168,7 @@ export function runPipelinedPlayback({
   const sessionStart = performance.now()
 
   let rate = initialSpeed
+  let paused = false
 
   /** @type {{ node: AudioBufferSourceNode, item: object, startTime: number,
    *   consumedNominal: number, lastRateChangeAt: number, endTimeEstimate: number } | null} */
@@ -168,7 +193,12 @@ export function runPipelinedPlayback({
 
   let fillInFlight = null
   async function fillReady() {
-    while (nextToSynth < chunks.length && bufferedSeconds() < bufferTargetSeconds && !aborted) {
+    while (
+      nextToSynth < chunks.length &&
+      bufferedSeconds() < bufferTargetSeconds &&
+      !aborted &&
+      !paused
+    ) {
       const index = nextToSynth
       nextToSynth += 1
       const text = chunks[index]
@@ -220,6 +250,7 @@ export function runPipelinedPlayback({
       const buffer = audioCtx.createBuffer(1, samples.length, raw.sampling_rate)
       buffer.copyToChannel(samples, 0)
 
+      chunksSynthesized += 1
       readyQueue.push({ index, text, buffer, nominalDuration: buffer.duration })
       emit()
       scheduleNextIfPossible()
@@ -230,7 +261,22 @@ export function runPipelinedPlayback({
     if (fillInFlight || aborted) return
     fillInFlight = fillReady().finally(() => {
       fillInFlight = null
+      if (
+        !paused &&
+        !aborted &&
+        nextToSynth < chunks.length &&
+        bufferedSeconds() < bufferTargetSeconds
+      ) {
+        kickFill()
+      }
     })
+  }
+
+  function joinStartTime() {
+    if (!currentSlot) return audioCtx.currentTime
+    const sentenceGap = interChunkPauseSeconds(currentSlot.item.text)
+    const joinOffset = sentenceGap || -JOIN_OVERLAP_SEC / rate
+    return Math.max(audioCtx.currentTime, currentSlot.endTimeEstimate + joinOffset)
   }
 
   function makeSource(buffer, startTime, playbackRate) {
@@ -250,7 +296,7 @@ export function runPipelinedPlayback({
   function scheduleNextIfPossible() {
     if (aborted || nextSlot || readyQueue.length === 0) return
     const item = readyQueue.shift()
-    const startTime = currentSlot ? currentSlot.endTimeEstimate : audioCtx.currentTime
+    const startTime = joinStartTime()
     const node = makeSource(item.buffer, startTime, rate)
     node.onended = () => handleEnded(node)
     nextSlot = { node, item, startTime, rateAtSchedule: rate }
@@ -287,7 +333,10 @@ export function runPipelinedPlayback({
 
     if (promoteNext()) return
 
-    if (nextToSynth >= chunks.length && readyQueue.length === 0) {
+    // nextToSynth counts work that has been dispatched, not work that has
+    // completed. Waiting for chunksSynthesized prevents an ending source from
+    // resolving the session while the final worker request is still in flight.
+    if (chunksSynthesized >= chunks.length && readyQueue.length === 0) {
       settleDone()
       return
     }
@@ -343,6 +392,16 @@ export function runPipelinedPlayback({
     settleDone()
   }
 
+  function pause() {
+    paused = true
+  }
+
+  function resume() {
+    if (aborted || !paused) return
+    paused = false
+    kickFill()
+  }
+
   /**
    * Live speed change. Applies instantly to the currently playing node and
    * reschedules the one pre-committed "next" node (safe: it hasn't started).
@@ -352,13 +411,18 @@ export function runPipelinedPlayback({
     if (!newRate || newRate <= 0) return
     if (currentSlot) {
       const now = audioCtx.currentTime
-      currentSlot.consumedNominal += (now - currentSlot.lastRateChangeAt) * rate
-      currentSlot.lastRateChangeAt = now
+      // During an intentional sentence gap, the promoted source exists but its
+      // scheduled start is still in the future. Do not count that wait as
+      // consumed audio or pull the following source ahead of it.
+      const effectiveNow = Math.max(now, currentSlot.startTime)
+      const elapsed = Math.max(0, now - currentSlot.lastRateChangeAt)
+      currentSlot.consumedNominal += elapsed * rate
+      currentSlot.lastRateChangeAt = effectiveNow
       currentSlot.node.playbackRate.value = newRate
       rate = newRate
 
       const remainingNominal = Math.max(0, currentSlot.item.nominalDuration - currentSlot.consumedNominal)
-      currentSlot.endTimeEstimate = now + remainingNominal / rate
+      currentSlot.endTimeEstimate = effectiveNow + remainingNominal / rate
 
       if (nextSlot) {
         try {
@@ -367,7 +431,9 @@ export function runPipelinedPlayback({
           /* ignore */
         }
         const item = nextSlot.item
-        const startTime = currentSlot.endTimeEstimate
+        const sentenceGap = interChunkPauseSeconds(currentSlot.item.text)
+        const joinOffset = sentenceGap || -JOIN_OVERLAP_SEC / rate
+        const startTime = Math.max(effectiveNow, currentSlot.endTimeEstimate + joinOffset)
         const node = makeSource(item.buffer, startTime, rate)
         node.onended = () => handleEnded(node)
         nextSlot = { node, item, startTime, rateAtSchedule: rate }
@@ -385,5 +451,5 @@ export function runPipelinedPlayback({
 
   kickFill()
 
-  return { setSpeed, stop, done }
+  return { setSpeed, pause, resume, stop, done }
 }

@@ -10,7 +10,7 @@
 
 // Bump when a release changes the app shell so installed PWAs fetch the new
 // input support instead of continuing to serve a previously cached entry.
-const SHELL_CACHE = 'junco-reader-shell-v3'
+const SHELL_CACHE = 'junco-reader-shell-v4'
 const SHARE_CACHE = 'junco-reader-share-v1'
 
 /**
@@ -139,7 +139,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(SHELL_CACHE)
-      const cached = await cache.match(request.url, { ignoreVary: true })
+      const cached =
+        (await cache.match(request.url, { ignoreVary: true })) ||
+        (request.mode === 'navigate' ? await cache.match('/') : null)
       if (cached) return cached
       const response = await fetch(request)
       if (response.ok) cache.put(request.url, response.clone())

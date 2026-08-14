@@ -2,13 +2,11 @@
   "version": "v1",
   "modelId": "onnx-community/Kokoro-82M-v1.0-ONNX",
   "runtimes": {
-    "webgpu": { "dtype": "fp32", "displaySize": "~310 MB", "note": "WebGPU requires fp32 for clean audio" },
-    "wasm": { "dtype": "q8", "displaySize": "~85 MB", "note": "WASM fallback" }
+    "webgpu": { "dtype": "fp32", "displaySize": "~326 MB", "note": "Full fp32 weights on WebGPU" }
   },
-  "approximateBytes": 89000000,
-  "displaySize": "~85 MB",
-  "notes": "Mirror onnx-community/Kokoro-82M-v1.0-ONNX to https://models.tryjunco.com/kokoro-web/v1/{model}/ with CORS for https://read.tryjunco.com and localhost. The app picks WebGPU+fp32 when available (faster), else WASM+q8. Synthesis runs in a Web Worker; playback schedules chunks back-to-back on the AudioContext clock, buffering ~30s of audio ahead.",
-  "cdnBase": "https://models.tryjunco.com/kokoro-web/v1",
+  "approximateBytes": 325532232,
+  "displaySize": "~326 MB",
+  "notes": "Natural voice downloads onnx-community/Kokoro-82M-v1.0-ONNX full fp32 weights directly from Hugging Face into the browser Cache API. WebGPU is required; there is no CPU/WASM model path. Synthesis runs in a Web Worker; playback schedules chunks back-to-back on the AudioContext clock, buffering ~30s of audio ahead.",
   "voices": [
     "af_heart",
     "af_bella",

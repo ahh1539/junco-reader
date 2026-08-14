@@ -78,7 +78,7 @@
         <img class="cp-nav-logo pixel-art" src="/junco-app-logo.webp" alt="" width="28" height="28" />
         <span class="cp-nav-name">Junco <em>Reader</em></span>
       </a>
-      <p class="cp-nav-privacy">Free / private / on-device</p>
+      <p class="cp-nav-privacy">Free / private / in your browser</p>
     </header>
 
     <main id="main" class="cp-main">
@@ -106,12 +106,12 @@
           </tr>
           <tr>
             <td>Voice before any download</td>
-            <td>Yes -- your browser's built-in voice plays instantly</td>
-            <td>No -- the ~300&nbsp;MB Kokoro model must download first</td>
+            <td>Yes -- only browser voices reported as local; no download</td>
+            <td>No -- the ~326&nbsp;MB Kokoro model must download first</td>
           </tr>
           <tr>
             <td>Neural voice engine</td>
-            <td>Kokoro-82M (on-device)</td>
+            <td>Kokoro-82M (fetches model/runtime assets, then synthesizes in this browser)</td>
             <td>Kokoro-82M (on-device)</td>
           </tr>
           <tr>
@@ -121,7 +121,7 @@
           </tr>
           <tr>
             <td>Documents leave your device</td>
-            <td>Never</td>
+            <td>Junco does not upload or persist document contents</td>
             <td>Never</td>
           </tr>
           <tr>
@@ -147,15 +147,15 @@
       <h2>Where Junco Reader is ahead</h2>
       <p>
         You can drop in a PDF or Markdown file, not just paste text -- and if you don't want to
-        wait on the model download, Junco Reader's Instant tier plays your browser's built-in
-        voice with zero download, no gate to clear first. Junco Reader is also installable as an
+        wait on the model download, Junco Reader's Instant tier uses only a browser voice reported
+        as local, with zero download and no gate to clear first. Junco Reader is also installable as an
         app, and it's built by the team behind
         <a href="https://www.tryjunco.com/">Junco</a>, an iPhone app that reads your email
         newsletters aloud every morning with the same voice family.
       </p>
 
       <div class="cp-cta">
-        <p><strong>Try it yourself</strong> -- drop in a PDF or paste an article, and switch to the Instant tier if you don't want to wait on a download.</p>
+        <p><strong>Try it yourself</strong> -- drop in a PDF or paste an article. Instant uses only a local-reported browser voice; Natural fetches model assets then synthesizes in this browser.</p>
         <a class="cp-btn" href="/">Open Junco Reader</a>
       </div>
     </main>

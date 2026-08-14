@@ -1,4 +1,4 @@
-import { fingerprintEpubBytes } from './epubProgress'
+import { fingerprintEpubBytes } from './epubProgress.js'
 
 const EPUB_MIMETYPE = 'application/epub+zip'
 const MAX_TEXT_ENTRY_BYTES = 12 * 1024 * 1024
@@ -85,7 +85,11 @@ function parseXml(markup, label) {
   if (typeof DOMParser === 'undefined') {
     throw new Error('Your browser cannot read EPUB files yet. Try a current browser and try again.')
   }
-  const doc = new DOMParser().parseFromString(markup, 'application/xml')
+  // The bytes have already been decoded. Dropping the optional declaration
+  // avoids parser inconsistencies around otherwise-valid single-quoted XML
+  // declarations found in older EPUB 2/Kindle conversions.
+  const xml = String(markup || '').replace(/^\uFEFF?\s*<\?xml[^?]*\?>\s*/i, '')
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
   if (firstElement(doc, 'parsererror')) {
     throw new Error(`Could not read ${label} in this EPUB.`)
   }
@@ -98,9 +102,9 @@ function parseChapter(markup) {
   return new DOMParser().parseFromString(markup, 'text/html')
 }
 
-function chapterText(doc) {
+function cleanedChapterRoot(doc) {
   const root = doc.body || firstElement(doc, 'body') || doc.documentElement
-  if (!root) return ''
+  if (!root) return null
   const clone = root.cloneNode(true)
   const removable = new Set([
     'script',
@@ -122,6 +126,21 @@ function chapterText(doc) {
   elementList(clone, 'img').forEach((node) => {
     if (node.getAttribute('alt')) node.replaceWith(` ${node.getAttribute('alt')} `)
   })
+  return clone
+}
+
+function normalizeChapterText(raw) {
+  return String(raw || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
+
+function chapterText(doc) {
+  const clone = cleanedChapterRoot(doc)
+  if (!clone) return ''
 
   const blockNames = new Set(
     'address article aside blockquote dd div dl dt figcaption figure footer h1 h2 h3 h4 h5 h6 header li main ol p pre section table td th tr ul'.split(
@@ -134,12 +153,7 @@ function chapterText(doc) {
     node.after('\n')
   })
 
-  return (clone.textContent || '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]*\n[ \t]*/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim()
+  return normalizeChapterText(clone.textContent || '')
 }
 
 function chapterHeading(doc) {
@@ -147,8 +161,62 @@ function chapterHeading(doc) {
   return textOf(heading)
 }
 
+function semanticSpineTitle(item, archivePath) {
+  const hint = `${item?.id || ''} ${archivePath.split('/').pop() || ''}`
+    .replace(/\.x?html?$/i, '')
+    .toLowerCase()
+  if (/mini[-_ ]?toc/.test(hint)) return 'Book Navigation'
+  if (/front[-_ ]?matter/.test(hint)) return 'Front Matter'
+  if (/back[-_ ]?matter/.test(hint)) return 'Back Matter'
+  if (/copyright/.test(hint)) return 'Copyright Notice'
+  if (/acknowledg/.test(hint)) return 'Acknowledgments'
+  if (/dedication/.test(hint)) return 'Dedication'
+  if (/about[-_ ]?(the[-_ ]?)?author/.test(hint)) return 'About the Author'
+  if (/\bpreface\b/.test(hint)) return 'Preface'
+  if (/\bprologue\b/.test(hint)) return 'Prologue'
+  if (/\bepilogue\b/.test(hint)) return 'Epilogue'
+  if (/\bcontents?\b|\btoc\b/.test(hint)) return 'Contents'
+  return ''
+}
+
+/**
+ * Collect in-chapter headings with character offsets into the whitespace-
+ * collapsed chapter text (same space as chunkTextWithOffsets), so the
+ * Listening Room can jump to sections on a page.
+ */
+function chapterSections(doc, text) {
+  if (!text) return []
+  const clone = cleanedChapterRoot(doc)
+  if (!clone) return []
+
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  const headings = elementList(clone, '*').filter((element) =>
+    /^(h1|h2|h3)$/i.test(element.localName || ''),
+  )
+  const sections = []
+  let searchFrom = 0
+
+  headings.forEach((heading, index) => {
+    const title = textOf(heading)
+    if (!title) return
+    const foundAt = normalized.indexOf(title, searchFrom)
+    if (foundAt === -1) return
+    const level = Number(String(heading.localName).replace(/\D/g, '') || 2)
+    sections.push({
+      id: `section-${index}-${foundAt}`,
+      title,
+      level: Number.isFinite(level) ? level : 2,
+      charOffset: foundAt,
+    })
+    searchFrom = foundAt + title.length
+  })
+
+  return sections
+}
+
 function buildTocTitles(archive, opfPath, manifest, spine) {
   const titles = new Map()
+  const titlePriorities = new Map()
   const navItem = [...manifest.values()].find((item) => /(^|\s)nav(\s|$)/.test(item.properties))
   const spineTocId = spine.getAttribute('toc')
   const ncxItem = spineTocId ? manifest.get(spineTocId) : null
@@ -159,6 +227,21 @@ function buildTocTitles(archive, opfPath, manifest, spine) {
   const contents = getEntry(archive, tocPath)
   if (!contents) return titles
 
+  const rememberTitle = (target, label) => {
+    if (!target || !label) return
+    const path = resolveArchivePath(tocPath, target)
+    // A fragmentless TOC entry names the whole spine document and is a better
+    // chapter label than a nested anchor within it. Some older conversions put
+    // an illustration and a numbered chapter in the same XHTML file; in that
+    // case prefer the chapter label. For equal candidates keep reading order.
+    const isWholeDocument = !String(target).includes('#')
+    const isNumberedChapter = /^(?:chapter\s+)?\d+\b|^[ivxlcdm]+[-.]\d+\b/i.test(label)
+    const priority = isWholeDocument ? 3 : isNumberedChapter ? 2 : 1
+    if ((titlePriorities.get(path) || 0) >= priority) return
+    titlePriorities.set(path, priority)
+    titles.set(path, label)
+  }
+
   try {
     const doc = parseXml(new TextDecoder().decode(contents), 'table of contents')
     if (tocItem.mediaType.includes('ncx')) {
@@ -166,13 +249,28 @@ function buildTocTitles(archive, opfPath, manifest, spine) {
         const content = firstElement(navPoint, 'content')
         const target = content?.getAttribute('src')
         const label = textOf(firstElement(firstElement(navPoint, 'navlabel') || navPoint, 'text'))
-        if (target && label) titles.set(resolveArchivePath(tocPath, target), label)
+        rememberTitle(target, label)
       }
     } else {
-      for (const link of elementList(doc, 'a').filter((element) => element.getAttribute('href'))) {
+      const EPUB_NS = 'http://www.idpf.org/2007/ops'
+      const navs = elementList(doc, 'nav')
+      const tocNav =
+        navs.find((nav) => {
+          const type =
+            nav.getAttributeNS?.(EPUB_NS, 'type') ||
+            nav.getAttribute('epub:type') ||
+            nav.getAttribute('type') ||
+            ''
+          return String(type).split(/\s+/).includes('toc')
+        }) || navs[0]
+      // EPUB navigation documents may also contain landmarks and hundreds of
+      // print page-number links. Those targets often point into chapter files;
+      // treating every <a> as a title lets "42" overwrite "Chapter 2".
+      const tocLinks = tocNav ? elementList(tocNav, 'a') : []
+      for (const link of tocLinks.filter((element) => element.getAttribute('href'))) {
         const target = link.getAttribute('href')
         const label = textOf(link)
-        if (target && label) titles.set(resolveArchivePath(tocPath, target), label)
+        rememberTitle(target, label)
       }
     }
   } catch {
@@ -194,7 +292,7 @@ function likelyDrmLocked(archive) {
  * book data leaves the browser.
  *
  * @param {File} file
- * @returns {Promise<{ text: string, kind: 'epub', name: string, chapters: { id: string, title: string, text: string }[], meta: { title: string, creator: string, fingerprint: string } }>}
+ * @returns {Promise<{ text: string, kind: 'epub', name: string, chapters: { id: string, title: string, text: string, sections: { id: string, title: string, level: number, charOffset: number }[] }[], meta: { title: string, creator: string, fingerprint: string } }>}
  */
 export async function extractEpubText(file) {
   const buffer = await file.arrayBuffer()
@@ -277,8 +375,13 @@ export async function extractEpubText(file) {
       if (!text) continue
       chapters.push({
         id: item.id || path,
-        title: tocTitles.get(path) || chapterHeading(chapterDoc) || `Chapter ${chapters.length + 1}`,
+        title:
+          tocTitles.get(path) ||
+          chapterHeading(chapterDoc) ||
+          semanticSpineTitle(item, path) ||
+          `Chapter ${chapters.length + 1}`,
         text,
+        sections: chapterSections(chapterDoc, text),
       })
     } catch {
       // EPUBs often contain a non-content spine file. Ignore an individual

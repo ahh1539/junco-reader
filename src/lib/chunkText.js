@@ -5,11 +5,16 @@
  * (RAMP_TARGETS) so the synthesized-audio buffer builds instead of falling
  * off a cliff right after the first chunk -- chunk 2 at full size would need
  * ~15s of synthesis to complete during chunk 1's ~3s of playback.
+ *
+ * Later EPUB chapters pass capIndexOffset past the ramp so they start at
+ * cruise instead of repeating the 48-char TTFA split.
  */
 
 const FIRST_CHUNK_TARGET = 48
-const RAMP_TARGETS = [90, 150, 220]
+export const RAMP_TARGETS = [90, 180, 350]
 const CHUNK_TARGET = RAMP_TARGETS[RAMP_TARGETS.length - 1]
+/** Offset that skips the TTFA ramp and starts at the cruise cap. */
+export const CRUISE_CAP_INDEX = RAMP_TARGETS.length
 
 /** Per-chunk character cap by position: chunk 0 is FIRST_CHUNK_TARGET, then ramps up. */
 function capForChunkIndex(i) {
@@ -51,7 +56,7 @@ function normalizeForChunking(raw) {
     .trim()
 }
 
-function chunkNormalizedText(text) {
+function chunkNormalizedText(text, { capIndexOffset = 0 } = {}) {
   if (!text) return []
 
   const sentences = splitSentences(text)
@@ -63,8 +68,9 @@ function chunkNormalizedText(text) {
     })
   }
 
-  // Guarantee the first unit respects the TTFA cap.
-  if (units[0] && units[0].text.length > FIRST_CHUNK_TARGET) {
+  // Tiny first-unit split is only for session/book start (TTFA). Later
+  // chapters must be allowed to open at cruise size.
+  if (capIndexOffset === 0 && units[0] && units[0].text.length > FIRST_CHUNK_TARGET) {
     const opening = hardSplit(units[0].text, FIRST_CHUNK_TARGET).map((piece, i) => ({
       text: piece,
       mustStart: i > 0,
@@ -76,7 +82,7 @@ function chunkNormalizedText(text) {
   let buf = ''
 
   for (const unit of units) {
-    const cap = capForChunkIndex(chunks.length)
+    const cap = capForChunkIndex(chunks.length + capIndexOffset)
     if (!buf) {
       buf = unit.text
     } else if (!unit.mustStart && buf.length + 1 + unit.text.length <= cap) {
@@ -90,8 +96,8 @@ function chunkNormalizedText(text) {
   return chunks
 }
 
-export function chunkText(raw) {
-  return chunkNormalizedText(normalizeForChunking(raw))
+export function chunkText(raw, options) {
+  return chunkNormalizedText(normalizeForChunking(raw), options)
 }
 
 /**
@@ -100,11 +106,12 @@ export function chunkText(raw) {
  * storing the book itself.
  *
  * @param {string} raw
+ * @param {{ capIndexOffset?: number }} [options]
  * @returns {{ text: string, startOffset: number, endOffset: number }[]}
  */
-export function chunkTextWithOffsets(raw) {
+export function chunkTextWithOffsets(raw, options) {
   const normalized = normalizeForChunking(raw)
-  const chunks = chunkNormalizedText(normalized)
+  const chunks = chunkNormalizedText(normalized, options)
   let cursor = 0
 
   return chunks.map((text) => {

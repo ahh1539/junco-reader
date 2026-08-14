@@ -1,15 +1,16 @@
 /**
  * Instant, zero-download narration via the browser's built-in speechSynthesis
- * API. No model to fetch, works everywhere Kokoro does (and beyond, e.g.
- * devices without WebGPU). Voice quality is just the OS default, not Kokoro's
- * neural model -- this is the fallback tier for skipping the model download,
- * not the default.
+ * API. This is the zero-download fallback when Natural (Kokoro / WebGPU) is
+ * unavailable or fails. Only voices the browser marks
+ * `localService` are used; known online voices are never selected or spoken.
  *
  * Deliberately simpler than kokoroWorkerClient/playbackPipeline: speech
  * synthesis here is effectively instantaneous (no synth-ahead buffer to
  * manage), so chunks are spoken one at a time, each queued from the previous
  * chunk's `onend`.
  */
+
+import { interChunkPauseMs } from './speechPacing.js'
 
 // Voices that exist in some OS voice roster but are unusable for reading
 // content aloud: Apple's joke/effects voices, its old pre-Siri robotic
@@ -60,10 +61,23 @@ function isLowQualityVoice(voice) {
   return LOW_QUALITY_VOICE_NAMES.has(baseVoiceName(voice.name || ''))
 }
 
-/** Drops known-bad voices; falls back to the unfiltered list if that empties it out. */
+/** Drops known-bad voices; if that empties a local-only list, keep the local list. */
 function pruneLowQualityVoices(voices) {
   const kept = voices.filter((v) => !isLowQualityVoice(v))
   return kept.length ? kept : voices
+}
+
+/** Only voices the browser reports as on-device. Unverified/online voices are dropped. */
+export function isVerifiedLocalVoice(voice) {
+  return Boolean(voice && voice.localService === true)
+}
+
+export function localWebSpeechVoices(voices) {
+  return (voices || []).filter(isVerifiedLocalVoice)
+}
+
+function usableLocalVoices(voices) {
+  return pruneLowQualityVoices(localWebSpeechVoices(voices))
 }
 
 let cachedVoices = null
@@ -83,66 +97,112 @@ export function isWebSpeechSupported() {
   )
 }
 
-const VOICE_POLL_INTERVAL_MS = 100
-const VOICE_POLL_MAX_ATTEMPTS = 20 // ~2s total -- a cold OS speech-service start can be slow
+export const VOICE_POLL_INTERVAL_MS = 100
+export const VOICE_POLL_MAX_ATTEMPTS = 20 // ~2s total -- a cold OS speech-service start can be slow
 
 /**
- * Resolves with the browser's voice list. Some browsers (Chrome) populate
- * this asynchronously on first call, signalled by `voiceschanged` -- but on
- * a cold start (fresh process, OS speech service not warmed up yet) that
- * event can be slow or, on some platforms, never fire at all even once
- * voices are actually ready. Polling `getVoices()` as a safety net avoids
- * permanently caching an empty list just because we asked too early.
+ * Resolves with verified local (`localService === true`) voices.
+ *
+ * A remote-only first list is not treated as final: Chrome often emits Google
+ * network voices before OS local voices. Wait on `voiceschanged` + polling
+ * until a local voice appears or the timeout elapses.
+ *
+ * An empty timeout is not cached, so a later call can discover voices the OS
+ * installs or reports late. Successful local lists are cached.
  * @returns {Promise<SpeechSynthesisVoice[]>}
  */
 export function getWebSpeechVoices() {
   if (!isWebSpeechSupported()) return Promise.resolve([])
-  if (cachedVoices) return Promise.resolve(cachedVoices)
+  if (cachedVoices?.length) return Promise.resolve(cachedVoices)
   if (voicesPromise) return voicesPromise
 
   voicesPromise = new Promise((resolve) => {
     const synth = window.speechSynthesis
-    const existing = synth.getVoices()
-    if (existing.length) {
-      cachedVoices = pruneLowQualityVoices(existing)
-      resolve(cachedVoices)
-      return
-    }
-
     let settled = false
     let attempts = 0
     let pollTimer = null
 
-    const onVoicesChanged = () => {
-      const voices = synth.getVoices()
-      if (voices.length) finish(voices)
+    const onVoicesChanged = () => consider(false)
+
+    const cleanup = () => {
+      if (pollTimer != null) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
+      synth.removeEventListener?.('voiceschanged', onVoicesChanged)
     }
 
-    const finish = (voices) => {
+    const succeed = (local) => {
       if (settled) return
       settled = true
-      if (pollTimer) clearInterval(pollTimer)
-      synth.removeEventListener?.('voiceschanged', onVoicesChanged)
-      cachedVoices = pruneLowQualityVoices(voices)
-      resolve(cachedVoices)
+      cleanup()
+      cachedVoices = local
+      voicesPromise = null
+      resolve(local)
     }
+
+    const giveUp = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      cachedVoices = null
+      voicesPromise = null
+      resolve([])
+    }
+
+    const consider = (timedOut) => {
+      const local = usableLocalVoices(synth.getVoices())
+      if (local.length) {
+        succeed(local)
+        return
+      }
+      if (timedOut) giveUp()
+    }
+
+    consider(false)
+    if (settled) return
 
     synth.addEventListener?.('voiceschanged', onVoicesChanged)
     pollTimer = setInterval(() => {
       attempts += 1
-      const voices = synth.getVoices()
-      if (voices.length || attempts >= VOICE_POLL_MAX_ATTEMPTS) finish(voices)
+      consider(attempts >= VOICE_POLL_MAX_ATTEMPTS)
     }, VOICE_POLL_INTERVAL_MS)
   })
+
   return voicesPromise
 }
 
-/** Prefer an on-device English voice so "runs on your device" stays true here too. */
+export const LOCAL_VOICE_CHECKING_HINT = 'Looking for an on-device browser voice…'
+export const LOCAL_VOICE_UNAVAILABLE_HINT =
+  'No on-device browser voice is available here. Instant only uses voices your browser marks as local.'
+
+/**
+ * Prefer a verified on-device (localService) English voice. Never auto-select
+ * a network voice or an unverified browser default.
+ */
 export function preferredDefaultVoice(voices) {
-  if (!voices?.length) return null
-  const english = voices.filter((v) => v.lang?.toLowerCase().startsWith('en'))
-  const pool = english.length ? english : voices
-  return pool.find((v) => v.localService) ?? pool[0]
+  const local = localWebSpeechVoices(voices)
+  if (!local.length) return null
+  const english = local.filter((v) => v.lang?.toLowerCase().startsWith('en'))
+  return english[0] || local[0]
+}
+
+export function voiceByURI(voices, uri) {
+  if (!uri) return null
+  return localWebSpeechVoices(voices).find((v) => v.voiceURI === uri) || null
+}
+
+/**
+ * App-level Instant usability: API support, enumeration finished, and a
+ * verified local voice URI that is still in the list.
+ */
+export function isInstantUsable({
+  apiSupported = false,
+  enumerationResolved = false,
+  voiceURI = null,
+  voices = [],
+} = {}) {
+  return Boolean(apiSupported && enumerationResolved && voiceByURI(voices, voiceURI))
 }
 
 // Chrome (desktop + Android) silently kills an utterance ~15s in unless the
@@ -153,13 +213,20 @@ const CHROME_KEEPALIVE_MS = 5000
 /**
  * @param {object} opts
  * @param {string[]} opts.chunks
- * @param {SpeechSynthesisVoice | null} [opts.voice]
+ * @param {SpeechSynthesisVoice} opts.voice verified localService voice; required
+
  * @param {number} [opts.initialRate]
  * @param {{
  *   onChunkStart?: (index: number) => void,
  *   onProgress?: (info: { chunksDone: number, charsSpoken: number, ttfaMs: number | null }) => void,
  * }} [opts.handlers]
- * @returns {{ setSpeed: (rate: number) => void, stop: () => void, done: Promise<object> }}
+ * @returns {{
+ *   setSpeed: (rate: number) => void,
+ *   pause: () => void,
+ *   resume: () => void,
+ *   stop: () => void,
+ *   done: Promise<object>,
+ * }}
  */
 export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, handlers = {} }) {
   let resolveDone
@@ -169,7 +236,18 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
 
   if (!chunks.length || !isWebSpeechSupported()) {
     resolveDone({ chunksDone: 0, charsSpoken: 0, ttfaMs: null, completed: false, error: null })
-    return { setSpeed: () => {}, stop: () => {}, done }
+    return { setSpeed: () => {}, pause: () => {}, resume: () => {}, stop: () => {}, done }
+  }
+
+  if (!isVerifiedLocalVoice(voice)) {
+    resolveDone({
+      chunksDone: 0,
+      charsSpoken: 0,
+      ttfaMs: null,
+      completed: false,
+      error: 'no local voice',
+    })
+    return { setSpeed: () => {}, pause: () => {}, resume: () => {}, stop: () => {}, done }
   }
 
   const synth = window.speechSynthesis
@@ -181,6 +259,10 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
   let chunksDone = 0
   let firstAudioAt = null
   let keepAliveTimer = null
+  let transitionTimer = null
+  let transitionStartedAt = null
+  let pendingTransitionMs = null
+  let paused = false
   let completed = false
   let playbackError = null
   const sessionStart = performance.now()
@@ -196,6 +278,12 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
     if (settled) return
     settled = true
     clearKeepAlive()
+    if (transitionTimer) {
+      clearTimeout(transitionTimer)
+      transitionTimer = null
+    }
+    transitionStartedAt = null
+    pendingTransitionMs = null
     resolveDone({
       chunksDone,
       charsSpoken,
@@ -203,6 +291,24 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
       completed,
       error: playbackError,
     })
+  }
+
+  function scheduleNext(delayMs) {
+    pendingTransitionMs = Math.max(0, delayMs)
+    if (paused) return
+    if (pendingTransitionMs === 0) {
+      pendingTransitionMs = null
+      speakNext()
+      return
+    }
+
+    transitionStartedAt = performance.now()
+    transitionTimer = setTimeout(() => {
+      transitionTimer = null
+      transitionStartedAt = null
+      pendingTransitionMs = null
+      speakNext()
+    }, pendingTransitionMs)
   }
 
   function speakNext() {
@@ -214,7 +320,7 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
     }
     const text = chunks[index]
     const utter = new SpeechSynthesisUtterance(text)
-    if (voice) utter.voice = voice
+    utter.voice = voice
     utter.rate = rate
 
     utter.onstart = () => {
@@ -244,7 +350,7 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
         ttfaMs: firstAudioAt != null ? firstAudioAt - sessionStart : null,
       })
       index += 1
-      speakNext()
+      scheduleNext(interChunkPauseMs(text))
     }
 
     utter.onerror = (e) => {
@@ -280,5 +386,33 @@ export function runWebSpeechPlayback({ chunks, voice = null, initialRate = 1, ha
     rate = newRate
   }
 
-  return { setSpeed, stop, done }
+  function pause() {
+    if (aborted || paused) return
+    paused = true
+    if (transitionTimer) {
+      const elapsed = Math.max(0, performance.now() - (transitionStartedAt ?? performance.now()))
+      pendingTransitionMs = Math.max(0, (pendingTransitionMs ?? 0) - elapsed)
+      clearTimeout(transitionTimer)
+      transitionTimer = null
+      transitionStartedAt = null
+    }
+    try {
+      synth.pause()
+    } catch {
+      /* best-effort only */
+    }
+  }
+
+  function resume() {
+    if (aborted || !paused) return
+    paused = false
+    try {
+      synth.resume()
+    } catch {
+      /* best-effort only */
+    }
+    if (pendingTransitionMs != null && !transitionTimer) scheduleNext(pendingTransitionMs)
+  }
+
+  return { setSpeed, pause, resume, stop, done }
 }

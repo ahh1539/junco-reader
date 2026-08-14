@@ -1,11 +1,18 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
   chooseRuntime,
+  clearStaleCompatibilityMode,
   COMPATIBILITY_MODE_KEY,
-  readCompatibilityMode,
+  getDeviceLabel,
+  isNaturalRuntime,
+  NATURAL_UNAVAILABLE_HINT,
+  NATURAL_CHECKING_HINT,
+  NO_SUPPORTED_SPEECH_HINT,
+  naturalFailureMessage,
   runtimeFromMeta,
-  writeCompatibilityMode,
+  speechAvailabilityHint,
 } from './kokoroEngine.js'
 
 function memoryStorage() {
@@ -18,73 +25,103 @@ function memoryStorage() {
 }
 
 describe('Kokoro runtime policy', () => {
-  it('uses WebGPU fp32 when auto mode detects WebGPU', async () => {
+  it('uses full fp32 on WebGPU when a usable adapter exists', async () => {
     const detect = vi.fn(async () => 'webgpu')
 
     await expect(chooseRuntime({ detect })).resolves.toMatchObject({
+      available: true,
       device: 'webgpu',
       dtype: 'fp32',
-      note: 'WebGPU (fast)',
+      note: 'WebGPU / fp32',
     })
     expect(detect).toHaveBeenCalledOnce()
   })
 
-  it('uses WASM q8 when auto mode cannot detect WebGPU', async () => {
-    const detect = vi.fn(async () => 'wasm')
+  it('does not offer a WASM/CPU path when WebGPU is missing', async () => {
+    const detect = vi.fn(async () => null)
 
-    await expect(chooseRuntime({ detect })).resolves.toMatchObject({
-      device: 'wasm',
-      dtype: 'q8',
-      note: 'WASM',
+    const runtime = await chooseRuntime({ detect })
+    expect(runtime).toMatchObject({
+      available: false,
+      device: null,
+      dtype: null,
+      unavailableReason: NATURAL_UNAVAILABLE_HINT,
     })
+    expect(isNaturalRuntime(runtime)).toBe(false)
   })
 
-  it('forces WASM q8 compatibility mode without probing WebGPU', async () => {
+  it('ignores a leftover compatibility-mode key instead of forcing WASM', async () => {
+    const storage = memoryStorage()
+    storage.setItem(COMPATIBILITY_MODE_KEY, '1')
     const detect = vi.fn(async () => 'webgpu')
 
-    await expect(chooseRuntime({ compatibilityMode: true, detect })).resolves.toMatchObject({
-      device: 'wasm',
-      dtype: 'q8',
+    await expect(chooseRuntime({ detect })).resolves.toMatchObject({
+      device: 'webgpu',
+      dtype: 'fp32',
     })
-    expect(detect).not.toHaveBeenCalled()
-  })
-
-  it('persists and safely reads the compatibility preference', () => {
-    const storage = memoryStorage()
-
-    expect(readCompatibilityMode(storage)).toBe(false)
-    writeCompatibilityMode(true, storage)
     expect(storage.getItem(COMPATIBILITY_MODE_KEY)).toBe('1')
-    expect(readCompatibilityMode(storage)).toBe(true)
-    writeCompatibilityMode(false, storage)
-    expect(readCompatibilityMode(storage)).toBe(false)
+    expect(detect).toHaveBeenCalledOnce()
   })
 
-  it('does not let blocked storage break the preference helpers', () => {
+  it('removes the stale compatibility key without throwing on blocked storage', () => {
+    const storage = memoryStorage()
+    storage.setItem(COMPATIBILITY_MODE_KEY, '1')
+    clearStaleCompatibilityMode(storage)
+    expect(storage.getItem(COMPATIBILITY_MODE_KEY)).toBeNull()
+
     const blocked = {
-      getItem: () => {
-        throw new Error('blocked')
-      },
-      setItem: () => {
-        throw new Error('blocked')
-      },
       removeItem: () => {
         throw new Error('blocked')
       },
     }
-
-    expect(readCompatibilityMode(blocked)).toBe(false)
-    expect(() => writeCompatibilityMode(true, blocked)).not.toThrow()
+    expect(() => clearStaleCompatibilityMode(blocked)).not.toThrow()
   })
 
-  it('maps worker metadata to the actual loaded runtime', () => {
+  it('only accepts worker metadata that actually loaded WebGPU fp32', () => {
     expect(runtimeFromMeta({ device: 'webgpu', dtype: 'fp32' })).toMatchObject({
       device: 'webgpu',
       dtype: 'fp32',
     })
-    expect(runtimeFromMeta({ device: 'wasm', dtype: 'q8' })).toMatchObject({
-      device: 'wasm',
-      dtype: 'q8',
-    })
+    expect(runtimeFromMeta({ device: 'webgpu', dtype: 'q8' })).toBeNull()
+    expect(runtimeFromMeta({ device: 'wasm', dtype: 'q8' })).toBeNull()
+    expect(runtimeFromMeta(null)).toBeNull()
+  })
+
+  it('labels WebGPU only', () => {
+    expect(getDeviceLabel('webgpu')).toBe('WebGPU')
+    expect(getDeviceLabel('wasm')).toBeNull()
+  })
+
+  it('explains WebGPU failure without offering a silent CPU fallback', () => {
+    expect(naturalFailureMessage(new Error('adapter lost'))).toMatch(/no CPU fallback/i)
+    expect(naturalFailureMessage(new Error('adapter lost'))).not.toMatch(/built-in speech/i)
+  })
+
+  it('starts Natural as unknown until a WebGPU probe resolves', () => {
+    expect(NATURAL_CHECKING_HINT).toMatch(/Checking/i)
+    expect(NATURAL_UNAVAILABLE_HINT).toMatch(/WebGPU/i)
+    expect(NATURAL_UNAVAILABLE_HINT).not.toMatch(/built-in speech/i)
+  })
+
+  it('only claims built-in speech still works when Instant is actually usable', () => {
+    expect(
+      speechAvailabilityHint({ naturalAvailable: false, instantUsable: true, instantResolved: true }),
+    ).toMatch(/built-in speech still works/i)
+    expect(
+      speechAvailabilityHint({ naturalAvailable: false, instantUsable: false, instantResolved: true }),
+    ).toBe(NO_SUPPORTED_SPEECH_HINT)
+    expect(
+      speechAvailabilityHint({ naturalAvailable: false, instantUsable: false, instantResolved: false }),
+    ).toBe(NATURAL_UNAVAILABLE_HINT)
+    expect(speechAvailabilityHint({ naturalAvailable: true })).toBeNull()
+  })
+})
+
+describe('Kokoro worker load policy', () => {
+  it('does not silently fall back from WebGPU to WASM', () => {
+    const src = readFileSync(new URL('./kokoroWorker.js', import.meta.url), 'utf8')
+    expect(src).not.toMatch(/finalDevice\s*=\s*'wasm'/)
+    expect(src).not.toMatch(/load\(\s*'wasm'/)
+    expect(src).toMatch(/device !== 'webgpu' \|\| dtype !== 'fp32'/)
   })
 })

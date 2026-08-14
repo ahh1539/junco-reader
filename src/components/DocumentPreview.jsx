@@ -1,13 +1,22 @@
 import { memo } from 'react'
+import InteractiveChapterText from './InteractiveChapterText'
+import SpeechOptimizeToggle from './SpeechOptimizeToggle'
 import './DocumentPreview.css'
 
 function DocumentPreview({
   document,
   activeChunkIndex = -1,
   chunks = [],
+  chapterChunks = [],
+  selectedChunkIndex = -1,
   chapterIndex = 0,
   onChapterChange,
+  onSectionSelect,
+  onChunkSeek,
   bookProgressLabel,
+  optimizeForSpeech = true,
+  onOptimizeForSpeechChange,
+  speechToggleLocked = false,
 }) {
   if (!document) return null
 
@@ -50,7 +59,7 @@ function DocumentPreview({
             >
               {chapters.map((chapter, index) => (
                 <option key={chapter.id} value={index}>
-                  {index + 1}. {chapter.title}
+                  {chapter.title}
                 </option>
               ))}
             </select>
@@ -61,19 +70,45 @@ function DocumentPreview({
 
       {activeChapter ? <h3 className="jr-doc-chapter-title">{activeChapter.title}</h3> : null}
 
-      <div className="jr-doc-body" tabIndex={0}>
-        {chunks.length > 0 ? (
-          chunks.map((chunk, i) => (
-            <span
-              key={i}
-              className={`jr-doc-chunk ${i === activeChunkIndex ? 'is-active' : ''} ${i < activeChunkIndex ? 'is-past' : ''}`}
-            >
-              {chunk}
-              {i < chunks.length - 1 ? ' ' : ''}
-            </span>
-          ))
+      <div className="jr-doc-stage">
+        {isEpub ? (
+          <InteractiveChapterText
+            chapter={activeChapter}
+            chapterChunks={chapterChunks}
+            activeChunkIndex={activeChunkIndex}
+            selectedChunkIndex={selectedChunkIndex}
+            onSectionSelect={onSectionSelect}
+            onChunkSeek={onChunkSeek}
+            optimizeForSpeech={optimizeForSpeech}
+            onOptimizeForSpeechChange={onOptimizeForSpeechChange}
+            speechToggleLocked={speechToggleLocked}
+            variant="reader"
+          />
         ) : (
-          <p className="jr-doc-plain">{text}</p>
+          <>
+            <div className="jr-doc-speech-bar">
+              <SpeechOptimizeToggle
+                checked={optimizeForSpeech}
+                disabled={speechToggleLocked}
+                onChange={onOptimizeForSpeechChange}
+              />
+            </div>
+            <div className="jr-doc-body" tabIndex={0}>
+              {chunks.length > 0 ? (
+                chunks.map((chunk, index) => (
+                  <span
+                    key={index}
+                    className={`jr-doc-chunk ${index === activeChunkIndex ? 'is-active' : ''} ${index < activeChunkIndex ? 'is-past' : ''}`}
+                  >
+                    {chunk}
+                    {index < chunks.length - 1 ? ' ' : ''}
+                  </span>
+                ))
+              ) : (
+                <p className="jr-doc-plain">{text}</p>
+              )}
+            </div>
+          </>
         )}
       </div>
     </section>

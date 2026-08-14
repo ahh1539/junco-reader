@@ -92,12 +92,23 @@
   font-weight: 500;
 }
 
+.jr-doc-stage {
+  position: relative;
+  border: 1px solid var(--jn-line-2);
+  background: rgba(251, 248, 237, 0.7);
+}
+
+.jr-doc-speech-bar {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 2;
+}
+
 .jr-doc-body {
   max-height: min(52vh, 520px);
   overflow: auto;
-  padding: 1.25rem 1.15rem;
-  background: rgba(251, 248, 237, 0.7);
-  border: 1px solid var(--jn-line-2);
+  padding: 2.85rem 1.15rem 1.25rem;
   font-size: 0.975rem;
   line-height: 1.7;
   color: var(--jn-ink-2);

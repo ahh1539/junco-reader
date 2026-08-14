@@ -25,9 +25,16 @@ function epubArchive(extraEntries = {}) {
         <spine><itemref idref="front" linear="no" /><itemref idref="one" /><itemref idref="two" /></spine>
       </package>`),
     'OEBPS/nav.xhtml': strToU8(`<?xml version="1.0"?>
-      <html xmlns="http://www.w3.org/1999/xhtml"><body><nav><ol>
+      <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol>
         <li><a href="chapters/one.xhtml">A beginning</a></li>
-        <li><a href="chapters/two.xhtml#part">The end</a></li>
+        <li><a href="chapters/one.xhtml#map">Opening map</a></li>
+        <li><a href="chapters/two.xhtml#sketch">Sketchbook</a></li>
+        <li><a href="chapters/two.xhtml#part">2. The end</a></li>
+      </ol></nav><nav epub:type="landmarks"><ol>
+        <li><a href="chapters/one.xhtml">Start reading</a></li>
+      </ol></nav><nav epub:type="page-list"><ol>
+        <li><a href="chapters/one.xhtml#page-5">5</a></li>
+        <li><a href="chapters/two.xhtml#page-12">12</a></li>
       </ol></nav></body></html>`),
     'OEBPS/front.xhtml': strToU8('<html xmlns="http://www.w3.org/1999/xhtml"><body>Hidden front matter</body></html>'),
     'OEBPS/chapters/one.xhtml': strToU8(`<?xml version="1.0"?>
@@ -65,13 +72,38 @@ describe('extractEpubText', () => {
     expect(document.kind).toBe('epub')
     expect(document.meta).toMatchObject({ title: 'The Test Book', creator: 'Ada Reader' })
     expect(document.meta.fingerprint).toMatch(/^[a-f0-9]{64}$/)
-    expect(document.chapters.map((chapter) => chapter.title)).toEqual(['A beginning', 'The end'])
+    expect(document.chapters.map((chapter) => chapter.title)).toEqual(['A beginning', '2. The end'])
     expect(document.chapters[0].text).toContain('First chapter.')
     expect(document.chapters[0].text).toContain('Moon map')
+    expect(document.chapters[0].sections?.[0]).toMatchObject({
+      title: 'Wrong heading',
+      level: 1,
+      charOffset: 0,
+    })
+    expect(document.chapters[1].sections?.[0]).toMatchObject({
+      title: 'Last words',
+      level: 1,
+    })
     expect(document.chapters[0].text).not.toContain('Navigation should not be spoken')
     expect(document.chapters[0].text).not.toContain('ignore this')
+    expect(document.chapters[0].sections?.[0]).toMatchObject({
+      title: 'Wrong heading',
+      level: 1,
+    })
+    expect(document.chapters[1].sections?.[0]).toMatchObject({
+      title: 'Last words',
+      level: 1,
+    })
     expect(document.text.indexOf('First chapter.')).toBeLessThan(document.text.indexOf('Second chapter.'))
     expect(document.text).not.toContain('Hidden front matter')
+  })
+
+  it('ignores EPUB page-list and landmark labels when assigning chapter titles', async () => {
+    const document = await extractEpubText(fileFrom(epubArchive()))
+
+    expect(document.chapters.map((chapter) => chapter.title)).toEqual(['A beginning', '2. The end'])
+    expect(document.chapters.map((chapter) => chapter.title)).not.toContain('5')
+    expect(document.chapters.map((chapter) => chapter.title)).not.toContain('Start reading')
   })
 
   it('rejects likely DRM-protected EPUBs before reading chapters', async () => {

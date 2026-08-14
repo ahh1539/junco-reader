@@ -4,6 +4,8 @@
  * Runs model load + synthesis off the main thread so the thread that
  * schedules AudioBufferSourceNode playback is never blocked by
  * eSpeak/tokenizer/ONNX work. See kokoroWorkerClient.js for the RPC client.
+ *
+ * Natural is WebGPU + fp32 only. A failed GPU load must not fall back to WASM.
  */
 
 import { MODEL_ID, configureModelSource } from './modelCache.js'
@@ -12,6 +14,7 @@ let ttsPromise = null
 let loadedDevice = null
 let loadedDtype = null
 let warmedVoice = null
+let generationQueue = Promise.resolve()
 
 function post(msg, transfer) {
   if (transfer) self.postMessage(msg, transfer)
@@ -19,6 +22,10 @@ function post(msg, transfer) {
 }
 
 async function loadModel({ device, dtype }) {
+  if (device !== 'webgpu' || dtype !== 'fp32') {
+    throw new Error('Natural voice requires WebGPU with fp32 weights. There is no CPU fallback.')
+  }
+
   const [{ KokoroTTS }, { env: transformersEnv }] = await Promise.all([
     import('kokoro-js'),
     import('@huggingface/transformers'),
@@ -26,39 +33,14 @@ async function loadModel({ device, dtype }) {
 
   configureModelSource(transformersEnv)
 
-  // ORT WASM defaults to 1 thread unless crossOriginIsolated. vercel.json and
-  // vite.config.js dev headers both set COOP/COEP, so this is real most of the time.
-  if (typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated) {
-    const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4
-    transformersEnv.backends.onnx.wasm.numThreads = Math.min(4, cores)
-  }
+  const tts = await KokoroTTS.from_pretrained(MODEL_ID, {
+    dtype,
+    device,
+    progress_callback: (info) => post({ type: 'progress', info }),
+  })
 
-  const load = (dev, dt) =>
-    KokoroTTS.from_pretrained(MODEL_ID, {
-      dtype: dt,
-      device: dev,
-      progress_callback: (info) => post({ type: 'progress', info }),
-    })
-
-  let tts
-  let finalDevice = device
-  let finalDtype = dtype
-  try {
-    tts = await load(device, dtype)
-  } catch (err) {
-    if (device === 'webgpu') {
-      // WebGPU requested but unavailable/broken in this worker context
-      // (e.g. no navigator.gpu in this browser's worker impl) -> fall back.
-      finalDevice = 'wasm'
-      finalDtype = 'q8'
-      tts = await load('wasm', 'q8')
-    } else {
-      throw err
-    }
-  }
-
-  loadedDevice = finalDevice
-  loadedDtype = finalDtype
+  loadedDevice = device
+  loadedDtype = dtype
   return tts
 }
 
@@ -70,6 +52,12 @@ function ensureLoaded({ device, dtype }) {
     })
   }
   return ttsPromise
+}
+
+function enqueueGeneration(task) {
+  const result = generationQueue.then(task, task)
+  generationQueue = result.catch(() => {})
+  return result
 }
 
 self.onmessage = async (event) => {
@@ -87,11 +75,13 @@ self.onmessage = async (event) => {
 
   if (msg.type === 'warmup') {
     try {
-      const tts = await ttsPromise
-      if (tts && warmedVoice !== msg.voice) {
-        await tts.generate('Hi.', { voice: msg.voice, speed: 1 })
-        warmedVoice = msg.voice
-      }
+      await enqueueGeneration(async () => {
+        const tts = await ttsPromise
+        if (tts && warmedVoice !== msg.voice) {
+          await tts.generate('Hi.', { voice: msg.voice, speed: 1 })
+          warmedVoice = msg.voice
+        }
+      })
       post({ type: 'warmup-done', voice: msg.voice })
     } catch (err) {
       // Best-effort; never fails the caller.
@@ -102,8 +92,10 @@ self.onmessage = async (event) => {
 
   if (msg.type === 'prefetch-voice') {
     try {
-      const tts = await ttsPromise
-      if (tts) await tts.generate('.', { voice: msg.voice, speed: 1 })
+      await enqueueGeneration(async () => {
+        const tts = await ttsPromise
+        if (tts) await tts.generate('.', { voice: msg.voice, speed: 1 })
+      })
       post({ type: 'prefetch-done', voice: msg.voice })
     } catch (err) {
       post({ type: 'prefetch-done', voice: msg.voice, error: err?.message })
@@ -114,9 +106,11 @@ self.onmessage = async (event) => {
   if (msg.type === 'synthesize') {
     const { id, text, voice } = msg
     try {
-      const tts = await ttsPromise
-      if (!tts) throw new Error('Kokoro model not loaded')
-      const raw = await tts.generate(text, { voice, speed: 1 })
+      const raw = await enqueueGeneration(async () => {
+        const tts = await ttsPromise
+        if (!tts) throw new Error('Kokoro model not loaded')
+        return tts.generate(text, { voice, speed: 1 })
+      })
       const audio = raw.audio instanceof Float32Array ? raw.audio : new Float32Array(raw.audio)
       post(
         { type: 'result', id, audio, sampling_rate: raw.sampling_rate },

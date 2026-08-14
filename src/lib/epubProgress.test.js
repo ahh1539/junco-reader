@@ -1,11 +1,37 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  bookProgressPercent,
+  chapterCoordinateLengths,
+  chapterProgressPercent,
   clearEpubProgress,
   fingerprintEpubBytes,
   loadEpubProgress,
   saveEpubProgress,
 } from './epubProgress'
+
+describe('EPUB progress coordinates', () => {
+  it('derives chapter lengths from the same offsets used for playback and resume', () => {
+    const lengths = chapterCoordinateLengths(
+      [
+        { chapterIndex: 0, startOffset: 0, endOffset: 40 },
+        { chapterIndex: 0, startOffset: 41, endOffset: 100 },
+        { chapterIndex: 1, startOffset: 0, endOffset: 200 },
+      ],
+      3,
+    )
+
+    expect(lengths).toEqual([100, 200, 0])
+    expect(chapterProgressPercent(lengths[0], 50)).toBe(50)
+    expect(bookProgressPercent(lengths, 1, 50)).toBe(50)
+  })
+
+  it('clamps invalid and out-of-range offsets', () => {
+    expect(chapterProgressPercent(100, 140)).toBe(100)
+    expect(bookProgressPercent([100, 100], 1, 140)).toBe(100)
+    expect(bookProgressPercent([100, 100], 0, -10)).toBe(0)
+  })
+})
 
 function memoryStorage() {
   const values = new Map()

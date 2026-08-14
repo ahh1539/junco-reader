@@ -10,36 +10,36 @@ export default function ModelDownloadButton({
   onRemove,
   removing = false,
   disabled = false,
-  compatibilityMode = false,
-  compatibilityDisabled = false,
-  onCompatibilityModeChange,
+  compact = false,
+  unavailableReason = null,
+  unavailableTitle = 'Natural voice unavailable',
+  onUseBuiltIn,
 }) {
   const pct = Math.round(Math.min(100, Math.max(0, progress || 0)))
-  const compatibilityControl = onCompatibilityModeChange ? (
-    <label className={`jr-model-compat ${compatibilityDisabled ? 'is-disabled' : ''}`}>
-      <input
-        type="checkbox"
-        checked={compatibilityMode}
-        disabled={compatibilityDisabled}
-        onChange={(event) => onCompatibilityModeChange(event.target.checked)}
-      />
-      <span className="jr-model-compat-copy">
-        <span className="jr-model-compat-title">Compatibility mode</span>
-        <span className="jr-model-compat-hint">
-          Use the smaller, slower voice path if Natural audio sounds distorted.
-        </span>
-      </span>
-    </label>
-  ) : null
+  const shellClass = `jr-model${compact ? ' is-compact' : ''}`
+
+  if (unavailableReason) {
+    return (
+      <div className={shellClass}>
+        <p className="jr-model-title">{unavailableTitle}</p>
+        <p className="jr-model-sub">{unavailableReason}</p>
+        {onUseBuiltIn ? (
+          <button type="button" className="jr-btn jr-btn-ghost jr-model-btn" onClick={onUseBuiltIn}>
+            Use built-in speech
+          </button>
+        ) : null}
+      </div>
+    )
+  }
 
   if (status === 'ready') {
     return (
-      <div className="jr-model is-ready">
+      <div className={`${shellClass} is-ready`}>
         <span className="jr-model-dot" aria-hidden="true" />
         <div className="jr-model-ready-copy">
           <p className="jr-model-title">Voice model ready</p>
           <p className="jr-model-sub">
-            Cached on this device{deviceLabel ? ` / ${deviceLabel}` : ''}. Revisits won't re-download.
+            Cached on this device{deviceLabel ? ` / ${deviceLabel}` : ''}. Revisits won&apos;t re-download.
           </p>
           {onRemove ? (
             <button
@@ -51,7 +51,6 @@ export default function ModelDownloadButton({
               {removing ? 'Removing...' : 'Remove from this device'}
             </button>
           ) : null}
-          {compatibilityControl}
         </div>
       </div>
     )
@@ -59,7 +58,7 @@ export default function ModelDownloadButton({
 
   if (status === 'downloading' || status === 'loading') {
     return (
-      <div className="jr-model is-busy" role="status" aria-live="polite">
+      <div className={`${shellClass} is-busy`} role="status" aria-live="polite">
         <p className="jr-model-title">
           {status === 'downloading' ? 'Downloading voice model...' : 'Loading voice model...'}
         </p>
@@ -67,26 +66,40 @@ export default function ModelDownloadButton({
           <span style={{ width: `${pct}%` }} />
         </div>
         <p className="jr-model-sub">{pct}% / stays on this device / free</p>
-        {compatibilityControl}
       </div>
     )
   }
 
   return (
-    <div className="jr-model">
+    <div className={shellClass}>
       <button
         type="button"
         className="jr-btn jr-btn-primary jr-model-btn"
         onClick={onDownload}
         disabled={disabled}
       >
-        Download voice model
+        Download Natural voice
       </button>
-      <p className="jr-model-sub">
-        {displaySize} / one-time / stays on this device. Documents never leave your browser.
-      </p>
-      {error ? <p className="jr-model-error">{error}</p> : null}
-      {compatibilityControl}
+      {compact ? null : (
+        <p className="jr-model-sub">
+          Full-quality {displaySize} one-time download. WebGPU required. Fetched directly to this
+          browser from Hugging Face, then synthesized client-side. Junco does not upload or
+          persist document contents.
+        </p>
+      )}
+      {error ? (
+        <p className="jr-model-error">
+          {error}
+          {onUseBuiltIn ? (
+            <>
+              {' '}
+              <button type="button" className="jr-model-fallback" onClick={onUseBuiltIn}>
+                Use built-in speech
+              </button>
+            </>
+          ) : null}
+        </p>
+      ) : null}
     </div>
   )
 }

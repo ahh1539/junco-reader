@@ -43,14 +43,39 @@
 }
 
 .jr-app {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   padding-bottom: var(--jn-cta-h);
 }
 
+/* The Listening Room needs a *definite* pane height, not just a min-height
+   floor: a flex column whose height is only bounded by min-height computes
+   its flex:1 child's size from that child's own content during layout, and
+   the room's stage is a CSS Grid with an `fr` row -- in that indefinite-size
+   pass, `fr` falls back to content-sizing instead of "fill available space".
+   Pin height to the viewport; the marketing bar is position:fixed, so this
+   padding keeps the listen dock from sitting under it. */
+.jr-app.has-listening-room {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+body:has(.jr-app.has-listening-room),
+#root:has(.jr-app.has-listening-room) {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .jr-nav {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -105,6 +130,40 @@
   width: min(100%, var(--jn-wrap));
   margin: 0 auto;
   padding: clamp(1.75rem, 4vw, 3rem) clamp(1.25rem, 4vw, 2rem) 3rem;
+}
+
+/* The Listening Room is a self-contained app pane, not an article page: it
+   claims the full height between the nav and the marketing footer so the
+   dock never has to float over scrolling content underneath it. */
+.jr-main.is-listening-room {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  width: min(100%, var(--jr-room-wrap, 1320px));
+  padding: 0.55rem clamp(0.75rem, 2.5vw, 1.5rem) 0.4rem;
+}
+
+@media (max-width: 899px) {
+  .jr-main.is-listening-room {
+    overflow-y: auto;
+  }
+}
+
+/* At desktop widths the room stage is a bounded grid row. Let the main pane
+   and its flex child shrink into the app's definite 100dvh height instead of
+   treating the book's intrinsic content as the minimum height of the pane. */
+@media (min-width: 900px) {
+  .jr-main.is-listening-room,
+  .jr-listening-room {
+    min-height: 0;
+  }
+}
+
+.jr-main.is-listening-room .jr-footnote,
+.jr-main.is-listening-room .jr-stats {
+  display: none;
 }
 
 .jr-hero {
@@ -327,6 +386,18 @@
   color: #9a2f1a;
 }
 
+.jr-error-fallback {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 550;
+  color: var(--jn-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .jr-footnote {
   margin-top: 3rem;
   padding-top: 1.5rem;
@@ -335,6 +406,11 @@
   line-height: 1.55;
   color: var(--jn-soft);
   max-width: 52ch;
+}
+
+.jr-footnote .jr-kicker {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
 }
 
 .jr-footnote a {

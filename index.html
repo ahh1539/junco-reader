@@ -21,7 +21,7 @@
     <title>Junco Reader: Free EPUB & PDF Text to Speech</title>
     <meta
       name="description"
-      content="Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
+      content="Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Junco does not upload or persist document contents. Instant uses only local-reported browser voices; Natural fetches model assets then synthesizes in the page."
     />
     <meta name="theme-color" content="#f5f0e1" />
     <meta name="application-name" content="Junco Reader" />
@@ -37,7 +37,7 @@
     <meta property="og:title" content="Junco Reader: Free EPUB & PDF Text to Speech" />
     <meta
       property="og:description"
-      content="Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
+      content="Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Junco does not upload or persist document contents. Instant uses only local-reported browser voices; Natural fetches model assets then synthesizes in the page."
     />
     <meta property="og:url" content="https://read.tryjunco.com/" />
     <meta property="og:image" content="https://read.tryjunco.com/og-image.jpg" />
@@ -52,7 +52,7 @@
     <meta name="twitter:title" content="Junco Reader: Free EPUB & PDF Text to Speech" />
     <meta
       name="twitter:description"
-      content="Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required."
+      content="Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Junco does not upload or persist document contents. Instant uses only local-reported browser voices; Natural fetches model assets then synthesizes in the page."
     />
     <meta name="twitter:image" content="https://read.tryjunco.com/og-image.jpg" />
     <meta
@@ -69,10 +69,10 @@
             "@id": "https://read.tryjunco.com/#webapp",
             "name": "Junco Reader",
             "url": "https://read.tryjunco.com/",
-            "description": "Free browser tool that reads DRM-free EPUBs, PDFs, Markdown, and text out loud with on-device Kokoro TTS. Documents stay in your browser.",
+            "description": "Free browser tool that reads DRM-free EPUBs, PDFs, Markdown, and text out loud. Junco does not upload or persist document contents. Instant uses only browser voices reported local. Natural fetches model and runtime assets, then synthesizes client-side when WebGPU is available.",
             "applicationCategory": "UtilitiesApplication",
             "operatingSystem": "Web",
-            "browserRequirements": "Requires JavaScript and a modern browser with WebAssembly.",
+            "browserRequirements": "Requires JavaScript and a modern browser. Natural voice additionally requires WebGPU.",
             "offers": {
               "@type": "Offer",
               "price": "0",
@@ -98,7 +98,7 @@
             "@id": "https://read.tryjunco.com/#webpage",
             "url": "https://read.tryjunco.com/",
             "name": "Junco Reader: Free EPUB & PDF Text to Speech",
-            "description": "Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Free, private, on-device Kokoro TTS. No account required.",
+            "description": "Read DRM-free EPUBs, PDFs, Markdown, or text out loud in your browser. Junco does not upload or persist document contents. No account required.",
             "isPartOf": { "@id": "https://www.tryjunco.com/#website" },
             "primaryEntity": { "@id": "https://read.tryjunco.com/#webapp" },
             "inLanguage": "en-US"
@@ -119,23 +119,27 @@
     <section id="seo-content" class="sr-only">
       <h1>Junco Reader</h1>
       <p>
-        Read DRM-free EPUBs, PDFs, Markdown, and text out loud in your browser. Free, private,
-        on-device Kokoro text-to-speech.
-        No account required. Your documents stay on your device.
+        Read DRM-free EPUBs, PDFs, Markdown, and text out loud in your browser.
+        Junco does not upload or persist document contents. No account required. Instant uses only
+        browser voices reported as local; Natural fetches model and runtime assets, then synthesizes
+        client-side.
       </p>
       <h2>How it works</h2>
       <ol>
         <li>Drop a DRM-free EPUB, PDF, TXT, or Markdown file, or paste text.</li>
-        <li>Download the on-device Kokoro voice model once (optional cache).</li>
-        <li>Press play — narration runs entirely in your browser.</li>
+        <li>Optionally download the Kokoro voice model for Natural speech (WebGPU). Natural fetches model and runtime assets, then synthesizes in this browser.</li>
+        <li>Press play — Instant uses only a browser voice reported as local; Natural runs Kokoro in the page.</li>
       </ol>
       <h2>Privacy</h2>
       <ul>
-        <li>No accounts or uploads of your documents.</li>
-        <li>Parsing and speech synthesis happen locally.</li>
+        <li>Junco does not upload or persist document contents. Parsing stays in the browser.</li>
         <li>
-          The only optional network fetch after page load (besides fonts) is the voice model when
-          you choose to download it.
+          Instant uses only voices the browser reports as local. Natural fetches model and runtime
+          assets, then synthesizes client-side on WebGPU.
+        </li>
+        <li>
+          Optional network after page load (besides fonts and anonymous analytics): Hugging Face
+          model weights and ONNX Runtime glue if you choose Natural.
         </li>
       </ul>
       <p>

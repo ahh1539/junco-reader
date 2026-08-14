@@ -29,6 +29,7 @@ function ensureWorker() {
       loadError = null
       loadWaiters.forEach((w) => w.resolve(loadResult))
       loadWaiters = []
+      progressListeners.clear()
       return
     }
 
@@ -36,6 +37,7 @@ function ensureWorker() {
       loadError = new Error(msg.message)
       loadWaiters.forEach((w) => w.reject(loadError))
       loadWaiters = []
+      progressListeners.clear()
       return
     }
 
@@ -85,12 +87,22 @@ const prefetchListeners = new Set()
 
 /**
  * Load the model in the worker. Resolves with the device/dtype the worker
- * actually ended up using (may differ from the request if WebGPU wasn't
- * available inside the worker context).
+ * loaded (WebGPU + fp32). Failures are not retried as WASM — the caller should
+ * surface the error and offer built-in speech.
  * @param {{ device: string, dtype: string, onProgress?: (info: object) => void }} opts
  */
 export function loadKokoro(opts) {
   if (loadResult) return Promise.resolve(loadResult)
+
+  // A failed worker/model initialization is not recoverable in place. Start a
+  // fresh worker on an explicit retry instead of replaying the latched error
+  // forever until the caller happens to invoke unloadKokoro().
+  if (loadError && loadWaiters.length === 0) {
+    worker?.terminate()
+    worker = null
+    loadError = null
+    warmedVoice = null
+  }
 
   const w = ensureWorker()
   if (opts.onProgress) progressListeners.add(opts.onProgress)

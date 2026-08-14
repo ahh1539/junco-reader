@@ -49,4 +49,5 @@ export const Events = {
   TTS_FORMAT_TOGGLE: 'tts_format_toggle',
   ENGINE_SWITCH: 'engine_switch',
   EPUB_RESUME: 'epub_resume',
+  EPUB_VIEW_SWITCH: 'epub_view_switch',
 }

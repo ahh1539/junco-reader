@@ -2,15 +2,19 @@ import { VOICES } from '../lib/voices'
 import './VoicePicker.css'
 
 /**
- * Engine choice + voice choice for whichever engine is active. "Natural"
- * (Kokoro, on-device) is the default, needing a one-time model download via
- * ModelDownloadButton; "Instant" (Web Speech, browser-native) is a
- * zero-download fallback.
+ * Engine choice + voice choice for whichever engine is active. Natural
+ * (Kokoro) is preferred when WebGPU is available; Instant uses only local
+ * Web Speech voices as the zero-download fallback.
  */
 export default function VoicePicker({
   engine,
   onEngineChange,
   webSpeechSupported = true,
+  instantUsable = false,
+  instantVoicesReady = false,
+  naturalAvailable = null,
+  naturalUnavailableHint,
+  instantEmptyHint,
   kokoroVoiceId,
   onKokoroVoiceChange,
   webSpeechVoices = [],
@@ -18,6 +22,16 @@ export default function VoicePicker({
   onWebSpeechVoiceChange,
   disabled,
 }) {
+  const naturalEnabled = naturalAvailable === true
+  const instantEnabled = webSpeechSupported && (instantUsable || !instantVoicesReady)
+  const instantTitle = !webSpeechSupported
+    ? "Your browser doesn't support built-in speech"
+    : !instantVoicesReady
+      ? instantEmptyHint
+      : instantUsable
+        ? undefined
+        : instantEmptyHint
+
   return (
     <div className="jr-voice">
       <span className="jr-voice-label">Voice</span>
@@ -29,7 +43,8 @@ export default function VoicePicker({
           aria-checked={engine === 'kokoro'}
           className={`jr-voice-engine-btn ${engine === 'kokoro' ? 'is-active' : ''}`}
           onClick={() => onEngineChange('kokoro')}
-          disabled={disabled}
+          disabled={disabled || !naturalEnabled}
+          title={!naturalEnabled ? naturalUnavailableHint : undefined}
         >
           Natural
         </button>
@@ -39,8 +54,8 @@ export default function VoicePicker({
           aria-checked={engine === 'webspeech'}
           className={`jr-voice-engine-btn ${engine === 'webspeech' ? 'is-active' : ''}`}
           onClick={() => onEngineChange('webspeech')}
-          disabled={disabled || !webSpeechSupported}
-          title={!webSpeechSupported ? "Your browser doesn't support instant playback" : undefined}
+          disabled={disabled || !instantEnabled}
+          title={instantTitle}
         >
           Instant
         </button>
@@ -62,9 +77,9 @@ export default function VoicePicker({
             ))}
           </select>
         ) : (
-          <p className="jr-voice-empty">Uses your browser&rsquo;s default voice.</p>
+          <p className="jr-voice-empty">{instantEmptyHint}</p>
         )
-      ) : (
+      ) : naturalEnabled ? (
         <select
           value={kokoroVoiceId}
           disabled={disabled}
@@ -79,6 +94,8 @@ export default function VoicePicker({
             </option>
           ))}
         </select>
+      ) : (
+        <p className="jr-voice-empty">{naturalUnavailableHint}</p>
       )}
     </div>
   )

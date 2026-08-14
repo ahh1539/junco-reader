@@ -10,6 +10,7 @@
   --jn-accent: #bd6a30;
   --jn-accent-ink: #9a5222;
   --jn-blue: #9fcdec;
+  --jn-blue-ink: #356f96;
   --jn-charcoal: #3d342c;
   --jn-brown: #726252;
 
@@ -20,7 +21,7 @@
   --jn-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --jn-wrap: 1040px;
   --jn-nav-h: 64px;
-  --jn-cta-h: 52px;
+  --jn-cta-h: calc(3.25rem + env(safe-area-inset-bottom, 0px));
 }
 
 *,
@@ -43,11 +44,13 @@ body {
     linear-gradient(180deg, var(--jn-paper-3) 0%, var(--jn-paper) 40%, var(--jn-paper-2) 100%);
   background-attachment: fixed;
   color: var(--jn-ink);
+  min-height: 100vh;
   min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
 }
 
 #root {
+  min-height: 100vh;
   min-height: 100dvh;
 }
 

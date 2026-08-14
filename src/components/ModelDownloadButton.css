@@ -89,43 +89,44 @@
   color: #9a2f1a;
 }
 
-.jr-model-compat {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  max-width: 32rem;
-  margin-top: 0.35rem;
+.jr-model-fallback {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 550;
+  color: var(--jn-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
-.jr-model-compat.is-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.jr-model.is-compact {
+  padding: 0;
+  gap: 0.3rem;
+  align-items: center;
+  text-align: center;
+  min-width: 12.5rem;
 }
 
-.jr-model-compat input {
-  margin-top: 0.2rem;
-  accent-color: var(--jn-accent);
-  width: 1rem;
-  height: 1rem;
-  flex-shrink: 0;
+.jr-model.is-compact .jr-model-btn {
+  align-self: center;
+  padding: 0.7rem 1.15rem;
+  white-space: nowrap;
 }
 
-.jr-model-compat-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+.jr-model.is-compact.is-busy {
+  min-width: 10rem;
 }
 
-.jr-model-compat-title {
+.jr-model.is-compact .jr-model-title {
   font-size: 0.8125rem;
-  font-weight: 550;
-  color: var(--jn-ink-2);
-  line-height: 1.25;
 }
 
-.jr-model-compat-hint {
-  font-size: 0.75rem;
-  color: var(--jn-soft);
-  line-height: 1.35;
+.jr-model.is-compact .jr-model-bar {
+  height: 5px;
+}
+
+.jr-model.is-compact .jr-model-sub {
+  font-size: 0.7rem;
 }

@@ -5,6 +5,7 @@ export default function Player({
   readyHint,
   playing,
   paused,
+  canPause = true,
   progressLabel,
   onPlay,
   onPause,
@@ -31,7 +32,12 @@ export default function Player({
             Resume
           </button>
         ) : (
-          <button type="button" className="jr-btn jr-btn-primary" onClick={onPause}>
+          <button
+            type="button"
+            className="jr-btn jr-btn-primary"
+            onClick={onPause}
+            disabled={!canPause}
+          >
             Pause
           </button>
         )}

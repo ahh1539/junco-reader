@@ -3,25 +3,13 @@ import { APP_STORE_URL } from '../lib/appStore'
 import { Events, track } from '../lib/analytics'
 import './PostListenNudge.css'
 
-const NUDGE_KEY = 'jr_nudge_seen_v1'
-
-export function hasSeenNudge() {
-  try {
-    return localStorage.getItem(NUDGE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-export function markNudgeSeen() {
-  try {
-    localStorage.setItem(NUDGE_KEY, '1')
-  } catch {
-    /* ignore */
-  }
-}
-
-export default function PostListenNudge({ open, engine, onTryNatural, onClose }) {
+export default function PostListenNudge({
+  open,
+  engine,
+  naturalAvailable = true,
+  onTryNatural,
+  onClose,
+}) {
   useEffect(() => {
     if (open) track(Events.NUDGE_SHOWN, { engine })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -29,11 +17,11 @@ export default function PostListenNudge({ open, engine, onTryNatural, onClose })
 
   if (!open) return null
 
-  // Most first listens are the instant browser voice (the fast default) --
-  // use this moment to point at the free on-device Kokoro upgrade before
+  // When the first listen uses Instant, point at the free Kokoro upgrade before
   // pitching the iOS app. Once someone's already heard Kokoro, the app pitch
   // (same voices, on newsletters) is the more relevant next step.
   const heardInstant = engine === 'webspeech'
+  const offerNatural = heardInstant && naturalAvailable === true
 
   return (
     <div
@@ -50,7 +38,7 @@ export default function PostListenNudge({ open, engine, onTryNatural, onClose })
         aria-labelledby="jr-nudge-title"
         onClick={(e) => e.stopPropagation()}
       >
-        {heardInstant ? (
+        {offerNatural ? (
           <>
             <p className="jr-nudge-kicker">One more thing</p>
             <h2 id="jr-nudge-title" className="jr-nudge-title">
@@ -58,7 +46,7 @@ export default function PostListenNudge({ open, engine, onTryNatural, onClose })
             </h2>
             <p className="jr-nudge-body">
               Junco Reader also has Kokoro, a free on-device AI voice that sounds noticeably more
-              natural. One-time download, then it's yours offline.
+              natural. One-time download, then it's cached in this browser.
             </p>
             <div className="jr-nudge-actions">
               <button

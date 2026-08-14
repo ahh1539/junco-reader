@@ -1,21 +1,33 @@
-import { DEFAULT_DISPLAY_SIZE, DEFAULT_BYTES } from './modelCache.js'
+import { DEFAULT_BYTES, DEFAULT_DISPLAY_SIZE } from './modelCache.js'
 
+/** Legacy key from the removed WASM compatibility path. Must not force a runtime. */
 export const COMPATIBILITY_MODE_KEY = 'jr_kokoro_compatibility_mode'
 
-const WASM_RUNTIME = {
-  device: 'wasm',
-  dtype: 'q8',
-  displaySize: DEFAULT_DISPLAY_SIZE,
-  approximateBytes: DEFAULT_BYTES,
-  note: 'WASM',
-}
+export const NATURAL_CHECKING_HINT = 'Checking whether Natural voice can run here…'
+
+export const NATURAL_UNAVAILABLE_HINT =
+  'Natural voice needs WebGPU. Use a current desktop browser with hardware acceleration enabled.'
+
+export const NO_SUPPORTED_SPEECH_HINT =
+  'This browser has no usable speech here. Natural needs WebGPU, and Instant needs a local browser voice.'
 
 const WEBGPU_RUNTIME = {
+  available: true,
   device: 'webgpu',
   dtype: 'fp32',
-  displaySize: '~310 MB',
-  approximateBytes: 326_000_000,
-  note: 'WebGPU (fast)',
+  displaySize: DEFAULT_DISPLAY_SIZE,
+  approximateBytes: DEFAULT_BYTES,
+  note: 'WebGPU / fp32',
+}
+
+const UNAVAILABLE_RUNTIME = {
+  available: false,
+  device: null,
+  dtype: null,
+  displaySize: DEFAULT_DISPLAY_SIZE,
+  approximateBytes: DEFAULT_BYTES,
+  note: null,
+  unavailableReason: NATURAL_UNAVAILABLE_HINT,
 }
 
 function getStorage(storage) {
@@ -27,43 +39,37 @@ function getStorage(storage) {
   }
 }
 
-/** Read the optional client-only compatibility preference without assuming storage works. */
-export function readCompatibilityMode(storage) {
+/**
+ * Drop the old compatibility-mode flag so a leftover `1` cannot steer runtime
+ * selection. Safe if storage is missing or blocked.
+ */
+export function clearStaleCompatibilityMode(storage) {
   try {
-    return getStorage(storage)?.getItem(COMPATIBILITY_MODE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-/** Persist the optional client-only compatibility preference best-effort. */
-export function writeCompatibilityMode(enabled, storage) {
-  try {
-    const target = getStorage(storage)
-    if (!target) return
-    if (enabled) target.setItem(COMPATIBILITY_MODE_KEY, '1')
-    else target.removeItem(COMPATIBILITY_MODE_KEY)
+    getStorage(storage)?.removeItem(COMPATIBILITY_MODE_KEY)
   } catch {
     /* Private browsing and blocked storage must not break playback. */
   }
-}
-
-function wasmRuntime() {
-  return { ...WASM_RUNTIME }
 }
 
 function webgpuRuntime() {
   return { ...WEBGPU_RUNTIME }
 }
 
+function unavailableRuntime() {
+  return { ...UNAVAILABLE_RUNTIME }
+}
+
+export function isNaturalRuntime(runtime) {
+  return runtime?.device === 'webgpu' && runtime?.dtype === 'fp32'
+}
+
 /**
- * Device/dtype capability detection (main-thread only: navigator.gpu).
+ * Device capability detection (main-thread only: navigator.gpu).
  *
  * Model loading and synthesis run in a worker -- see kokoroWorkerClient.js.
- * This module stays main-thread-only so capability detection (used for the
- * download-size UI before any model load starts) doesn't need the worker.
+ * This module stays main-thread-only so the download-size UI can probe
+ * WebGPU before any model load starts.
  */
-
 export async function detectDevice() {
   if (typeof navigator !== 'undefined' && navigator.gpu) {
     try {
@@ -73,28 +79,49 @@ export async function detectDevice() {
       /* fall through */
     }
   }
-  return 'wasm'
+  return null
 }
 
 /**
- * Device/dtype policy (kokoro-js / Transformers.js v4):
- * - WebGPU uses fp32 for the highest-fidelity path.
- * - WASM + q8 is the small-download / lower-RAM compatibility path.
- *
- * Ref: hexgrad/kokoro#98, transformers.js#1320
+ * Natural voice is WebGPU + full fp32 only. There is no CPU/WASM path.
+ * A leftover compatibility-mode key is ignored (and should be cleared on boot).
  */
-export async function chooseRuntime({ compatibilityMode = readCompatibilityMode(), detect = detectDevice } = {}) {
-  if (compatibilityMode) return wasmRuntime()
-
+export async function chooseRuntime({ detect = detectDevice } = {}) {
   const device = await detect()
-  return device === 'webgpu' ? webgpuRuntime() : wasmRuntime()
+  return device === 'webgpu' ? webgpuRuntime() : unavailableRuntime()
 }
 
 /** Convert worker-reported load metadata into the runtime shown to the user. */
 export function runtimeFromMeta(meta) {
-  return meta?.device === 'webgpu' && meta?.dtype === 'fp32' ? webgpuRuntime() : wasmRuntime()
+  return isNaturalRuntime(meta) ? webgpuRuntime() : null
 }
 
 export function getDeviceLabel(device) {
-  return device === 'webgpu' ? 'WebGPU' : 'WASM'
+  return device === 'webgpu' ? 'WebGPU' : null
+}
+
+/** Concise copy when WebGPU load or synthesis fails. No silent WASM fallback. */
+export function naturalFailureMessage(err) {
+  const detail = (err?.message || String(err || '')).trim()
+  const short = detail.length > 140 ? `${detail.slice(0, 137)}...` : detail
+  if (!short) {
+    return "Natural voice failed on WebGPU. There's no CPU fallback."
+  }
+  return `Natural voice failed on WebGPU (${short}). There's no CPU fallback.`
+}
+
+/**
+ * Contextual Natural/Instant copy. Never claims built-in speech works unless
+ * Instant is actually usable.
+ */
+export function speechAvailabilityHint({
+  naturalAvailable,
+  instantUsable = false,
+  instantResolved = false,
+} = {}) {
+  if (naturalAvailable === true) return null
+  if (naturalAvailable == null) return NATURAL_CHECKING_HINT
+  if (instantResolved && !instantUsable) return NO_SUPPORTED_SPEECH_HINT
+  if (instantUsable) return `${NATURAL_UNAVAILABLE_HINT} Built-in speech still works.`
+  return NATURAL_UNAVAILABLE_HINT
 }

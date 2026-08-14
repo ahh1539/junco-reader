@@ -1,0 +1,39 @@
+.jr-playback-target {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--jn-blue-ink);
+}
+
+.jr-playback-target span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.jr-playback-target button {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--jn-blue-ink);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 0;
+}
+
+.jr-playback-target button:hover,
+.jr-playback-target button:focus-visible {
+  color: var(--jn-ink);
+}
+
+.jr-playback-target.is-reader {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-left: 3px solid var(--jn-blue-ink);
+  background: rgba(159, 205, 236, 0.16);
+}

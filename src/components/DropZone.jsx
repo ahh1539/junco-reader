@@ -43,7 +43,7 @@ export default function DropZone({ onFile, disabled }) {
         ↘
       </span>
       <span className="jr-drop-title">Drop a PDF, EPUB, TXT, or Markdown file</span>
-      <span className="jr-drop-sub">or click to browse. Files never leave this browser.</span>
+      <span className="jr-drop-sub">or click to browse. Junco does not upload or persist document contents.</span>
     </label>
   )
 }

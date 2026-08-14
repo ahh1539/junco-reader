@@ -1,5 +1,40 @@
 const STORAGE_PREFIX = 'junco-reader-epub-progress-v1:'
 
+/** Build per-chapter lengths in the same coordinate space as chunk offsets. */
+export function chapterCoordinateLengths(chunkRecords, chapterCount = 0) {
+  const lengths = Array.from({ length: Math.max(0, chapterCount) }, () => 0)
+  for (const chunk of chunkRecords || []) {
+    const chapterIndex = Number(chunk?.chapterIndex)
+    if (!Number.isInteger(chapterIndex) || chapterIndex < 0) continue
+    while (lengths.length <= chapterIndex) lengths.push(0)
+    lengths[chapterIndex] = Math.max(lengths[chapterIndex], Number(chunk.endOffset) || 0)
+  }
+  return lengths
+}
+
+export function chapterProgressPercent(chapterLength, characterOffset) {
+  const total = Math.max(0, Number(chapterLength) || 0)
+  if (!total) return 0
+  const offset = Math.max(0, Number(characterOffset) || 0)
+  return Math.min(100, Math.round((offset / total) * 100))
+}
+
+export function bookProgressPercent(chapterLengths, chapterIndex, characterOffset) {
+  if (!chapterLengths?.length) return 0
+  const safeIndex = Math.min(
+    chapterLengths.length - 1,
+    Math.max(0, Number.isInteger(chapterIndex) ? chapterIndex : 0),
+  )
+  const total = chapterLengths.reduce((sum, length) => sum + (Number(length) || 0), 0)
+  if (!total) return 0
+  const before = chapterLengths
+    .slice(0, safeIndex)
+    .reduce((sum, length) => sum + (Number(length) || 0), 0)
+  const chapterLength = Number(chapterLengths[safeIndex]) || 0
+  const offset = Math.min(chapterLength, Math.max(0, Number(characterOffset) || 0))
+  return Math.min(100, Math.max(0, Math.round(((before + offset) / total) * 100)))
+}
+
 function localStore() {
   try {
     return typeof localStorage === 'undefined' ? null : localStorage

@@ -4,9 +4,9 @@
  */
 export const SAMPLE_DOCUMENT_NAME = 'Sample: how Junco Reader works'
 
-export const SAMPLE_DOCUMENT_TEXT = `This is Junco Reader. Drop in a PDF, paste an article, or try this sample -- everything you hear is generated right here in your browser. Nothing you read is ever uploaded anywhere.
+export const SAMPLE_DOCUMENT_TEXT = `This is Junco Reader. Drop in a PDF, paste an article, or try this sample. Junco does not upload or persist document contents. Instant uses only voices the browser reports as local. Natural fetches its assets, then synthesizes client-side.
 
-Two voices are on offer. This one is Natural, powered by Kokoro, an eighty-two million parameter model that runs entirely on your device after a one-time download. If you'd rather skip the download, switch to Instant in the voice picker -- that's your browser's built-in voice, no wait at all.
+Natural is the default: a full-quality Kokoro model, about three hundred twenty-six megabytes, downloaded once when WebGPU is available. Instant uses a local browser voice when your system provides one.
 
 Junco Reader is a free companion to Junco, an iPhone app that turns your email newsletters into a short daily podcast using these same on-device voices. If today's newsletters are still sitting unread, that might be worth a look.`
 
