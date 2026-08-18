@@ -54,7 +54,6 @@ import {
 import {
   getLoadedMeta,
   loadKokoro,
-  prefetchVoice,
   unloadKokoro,
   warmUp,
 } from './lib/kokoroWorkerClient'
@@ -82,6 +81,7 @@ import {
   takeSharedFile,
   takeSharedText,
 } from './lib/incomingShare'
+import { ensureVoiceBinCached } from './lib/kokoroVoices'
 import { DEFAULT_VOICE_ID, voiceById } from './lib/voices'
 import { MARKETING_URL } from './lib/appStore'
 import { Events, track } from './lib/analytics'
@@ -390,13 +390,20 @@ export default function App() {
         unloadKokoro()
         throw new Error('Natural voice did not load on WebGPU.')
       }
-      await warmUp(voiceId)
       runtimeRef.current = actualRuntime
       setDisplaySize(actualRuntime.displaySize)
       setDeviceLabel(actualRuntime.note)
       setModelProgress(100)
       setModelStatus('ready')
       track(Events.MODEL_DOWNLOAD_COMPLETE, { device: meta.device, dtype: meta.dtype })
+      try {
+        await ensureVoiceBinCached(voiceId)
+        await warmUp(voiceId)
+      } catch (voiceErr) {
+        console.error(voiceErr)
+        setModelError(naturalFailureMessage(voiceErr))
+        setOfferBuiltInFallback(instantUsable)
+      }
     } catch (err) {
       console.error(err)
       setModelStatus('needed')
@@ -423,6 +430,7 @@ export default function App() {
       unloadKokoro()
       throw new Error('Natural voice did not load on WebGPU.')
     }
+    await ensureVoiceBinCached(voiceId)
     await warmUp(voiceId)
     runtimeRef.current = actualRuntime
     setDisplaySize(actualRuntime.displaySize)
@@ -1109,7 +1117,10 @@ export default function App() {
 
   const onKokoroVoiceChange = (id) => {
     setVoiceId(id)
-    prefetchVoice(id)
+    // Load the style embedding as a Cache API asset only. Do not enqueue
+    // worker generate() here: that shares the synthesis queue, and a stall
+    // (uncached voice or punctuation-only inference) blocks all later playback.
+    void ensureVoiceBinCached(id).catch((err) => console.error(err))
   }
 
   const onWebSpeechVoiceChange = (uri) => {

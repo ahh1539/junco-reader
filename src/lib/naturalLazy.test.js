@@ -14,6 +14,17 @@ describe('Natural voice stays lazy', () => {
     expect(client).toMatch(/new Worker\(new URL\('\.\/kokoroWorker\.js'/)
   })
 
+  it('does not enqueue worker synthesis when the Natural voice picker changes', () => {
+    const app = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
+    const client = readFileSync(new URL('./kokoroWorkerClient.js', import.meta.url), 'utf8')
+    const worker = readFileSync(new URL('./kokoroWorker.js', import.meta.url), 'utf8')
+    expect(app).toMatch(/await ensureVoiceBinCached\(voiceId\)/)
+    expect(app).not.toMatch(/prefetchVoice/)
+    expect(app).not.toMatch(/cacheCuratedVoiceBins/)
+    expect(client).not.toMatch(/prefetchVoice/)
+    expect(worker).not.toMatch(/prefetch-voice/)
+  })
+
   it('defaults to Natural and forbids the quantized runtime policy', () => {
     const app = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
     const engine = readFileSync(new URL('./kokoroEngine.js', import.meta.url), 'utf8')

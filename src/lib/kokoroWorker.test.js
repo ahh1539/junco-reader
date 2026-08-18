@@ -53,4 +53,16 @@ describe('Kokoro worker generation queue', () => {
     expect(generate.mock.calls.map(([text]) => text)).toEqual(['first', 'second'])
     expect(workerScope.postMessage.mock.calls.map(([message]) => message.type)).toContain('result')
   })
+
+  it('does not synthesize on a leftover prefetch-voice message', async () => {
+    const generate = vi.fn()
+    mocks.fromPretrained.mockResolvedValue({ generate })
+    const workerScope = { postMessage: vi.fn(), onmessage: null }
+    vi.stubGlobal('self', workerScope)
+    await import('./kokoroWorker.js')
+
+    await workerScope.onmessage({ data: { type: 'load', device: 'webgpu', dtype: 'fp32' } })
+    await workerScope.onmessage({ data: { type: 'prefetch-voice', voice: 'af_bella' } })
+    expect(generate).not.toHaveBeenCalled()
+  })
 })

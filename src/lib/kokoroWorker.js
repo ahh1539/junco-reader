@@ -84,21 +84,7 @@ self.onmessage = async (event) => {
       })
       post({ type: 'warmup-done', voice: msg.voice })
     } catch (err) {
-      // Best-effort; never fails the caller.
       post({ type: 'warmup-done', voice: msg.voice, error: err?.message })
-    }
-    return
-  }
-
-  if (msg.type === 'prefetch-voice') {
-    try {
-      await enqueueGeneration(async () => {
-        const tts = await ttsPromise
-        if (tts) await tts.generate('.', { voice: msg.voice, speed: 1 })
-      })
-      post({ type: 'prefetch-done', voice: msg.voice })
-    } catch (err) {
-      post({ type: 'prefetch-done', voice: msg.voice, error: err?.message })
     }
     return
   }

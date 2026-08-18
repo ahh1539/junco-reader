@@ -12,6 +12,14 @@ let loadResult = null // { device, dtype } once 'ready' seen
 let loadWaiters = []
 let loadError = null
 let warmedVoice = null
+/** @type {Map<string, { resolve: Function, reject: Function, promise: Promise<void> }>} */
+const warmupWaiters = new Map()
+
+/** Bound for warmup/synthesize. A stall terminates the worker so the queue can recover. */
+export const WORKER_RPC_TIMEOUT_MS = 45_000
+
+export const WORKER_STALL_MESSAGE =
+  'Natural voice stalled and was reset. Press Listen to try again.'
 
 function ensureWorker() {
   if (worker) return worker
@@ -42,12 +50,14 @@ function ensureWorker() {
     }
 
     if (msg.type === 'warmup-done') {
-      warmupListeners.forEach((fn) => fn(msg))
-      return
-    }
-
-    if (msg.type === 'prefetch-done') {
-      prefetchListeners.forEach((fn) => fn(msg))
+      const current = warmupWaiters.get(msg.voice)
+      if (!current) return
+      warmupWaiters.delete(msg.voice)
+      if (msg.error) current.reject(new Error(msg.error))
+      else {
+        warmedVoice = msg.voice
+        current.resolve()
+      }
       return
     }
 
@@ -69,21 +79,51 @@ function ensureWorker() {
     }
   }
   worker.onerror = (event) => {
-    const err = new Error(event.message || 'Kokoro worker error')
-    if (!loadResult) {
-      loadError = err
-      loadWaiters.forEach((w) => w.reject(err))
-      loadWaiters = []
-    }
-    pending.forEach((p) => p.reject(err))
-    pending.clear()
+    failWorker(new Error(event.message || 'Kokoro worker error'))
   }
   return worker
 }
 
 const progressListeners = new Set()
-const warmupListeners = new Set()
-const prefetchListeners = new Set()
+
+function failWorker(err) {
+  const error = err instanceof Error ? err : new Error(String(err || 'Kokoro worker error'))
+  if (worker) {
+    worker.onmessage = null
+    worker.onerror = null
+    worker.terminate()
+    worker = null
+  }
+  loadResult = null
+  loadError = error
+  warmedVoice = null
+  warmupWaiters.forEach((waiter) => waiter.reject(error))
+  warmupWaiters.clear()
+  loadWaiters.forEach((w) => w.reject(error))
+  loadWaiters = []
+  pending.forEach((p) => p.reject(error))
+  pending.clear()
+  progressListeners.clear()
+}
+
+function withTimeout(promise, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      failWorker(new Error(message))
+      reject(new Error(message))
+    }, WORKER_RPC_TIMEOUT_MS)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 /**
  * Load the model in the worker. Resolves with the device/dtype the worker
@@ -98,10 +138,16 @@ export function loadKokoro(opts) {
   // fresh worker on an explicit retry instead of replaying the latched error
   // forever until the caller happens to invoke unloadKokoro().
   if (loadError && loadWaiters.length === 0) {
-    worker?.terminate()
-    worker = null
+    if (worker) {
+      worker.onmessage = null
+      worker.onerror = null
+      worker.terminate()
+      worker = null
+    }
     loadError = null
     warmedVoice = null
+    warmupWaiters.forEach((waiter) => waiter.reject(new Error('Kokoro worker reset')))
+    warmupWaiters.clear()
   }
 
   const w = ensureWorker()
@@ -128,37 +174,26 @@ export function getLoadedMeta() {
 
 /** Drop the worker (and its in-memory model) so the next load starts fresh. */
 export function unloadKokoro() {
-  if (worker) {
-    worker.terminate()
-    worker = null
-  }
-  loadResult = null
+  failWorker(new Error('Kokoro worker unloaded'))
   loadError = null
-  warmedVoice = null
-  loadWaiters = []
-  pending.forEach((p) => p.reject(new Error('Kokoro worker unloaded')))
-  pending.clear()
 }
 
-/** Best-effort; never throws. */
+/** Rejects on worker error or stall. Does not latch the voice until success. */
 export function warmUp(voice) {
   if (!worker || !loadResult || warmedVoice === voice) return Promise.resolve()
-  warmedVoice = voice
-  return new Promise((resolve) => {
-    const onDone = (msg) => {
-      if (msg.voice !== voice) return
-      warmupListeners.delete(onDone)
-      resolve()
-    }
-    warmupListeners.add(onDone)
-    worker.postMessage({ type: 'warmup', voice })
-  })
-}
+  const existing = warmupWaiters.get(voice)
+  if (existing) return existing.promise
 
-/** Fire-and-forget voice asset prefetch; safe to call speculatively. */
-export function prefetchVoice(voice) {
-  if (!worker || !loadResult) return
-  worker.postMessage({ type: 'prefetch-voice', voice })
+  let resolve
+  let reject
+  const inner = new Promise((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  const promise = withTimeout(inner, WORKER_STALL_MESSAGE)
+  warmupWaiters.set(voice, { resolve, reject, promise })
+  worker.postMessage({ type: 'warmup', voice })
+  return promise
 }
 
 /**
@@ -169,8 +204,9 @@ export function prefetchVoice(voice) {
 export function synthesizeChunk(text, { voice }) {
   const w = ensureWorker()
   const id = nextRequestId++
-  return new Promise((resolve, reject) => {
+  const promise = new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     w.postMessage({ type: 'synthesize', id, text, voice })
   })
+  return withTimeout(promise, WORKER_STALL_MESSAGE)
 }
