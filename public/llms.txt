@@ -9,6 +9,7 @@
 - Status: live, free to use.
 - Categories: text to speech, EPUB reader, PDF reader, accessibility tool, in-browser AI.
 - Differentiators: Instant uses only local-reported browser voices; optional Natural Kokoro TTS fetches weights then synthesizes in the page (not a cloud TTS API); no account; Junco does not upload or persist document contents; works with DRM-free EPUB/PDF/TXT/Markdown/pasted text.
+- Agent tools: the live reader page registers native WebMCP tools on `document.modelContext` when the browser supports them (no extra agent server). Tools control playback and opening text in the tab; they do not return document contents.
 - Companion product: Junco, an iOS app that turns email newsletters into a daily podcast.
 
 ## Not to be confused with

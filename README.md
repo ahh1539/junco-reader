@@ -68,6 +68,14 @@ Icons in `public/icons/` are derived from `public/junco-app-logo.webp` (see the 
 
 `compare/quick-tts/`, `compare/kokoroweb/`, `compare/offline-tts/` are static SEO pages (separate Vite build entries, see `vite.config.js` `build.rollupOptions.input`) comparing Junco Reader against other free browser-TTS tools. Share `src/styles/compare.css`, not the React app's CSS -- update facts there if a competitor's feature set changes.
 
+## WebMCP
+
+Junco Reader talks to the **native** W3C [WebMCP](https://webmachinelearning.github.io/webmcp/) API (`document.modelContext`) in the open tab. There is no extra npm runtime, no MCP-B/`@mcp-b/global` polyfill, and no server: those packages either duplicate the browser API or add tens-to-hundreds of KB for visitors who will never use an in-page agent. Tool descriptions load only when the browser actually exposes `registerTool`.
+
+Tools wrap the same local actions as the UI (status, paste/sample open, engine/voice/speed, playback, EPUB chapter seek) and return metadata only — never document body text.
+
+Local try-out: enable `chrome://flags/#enable-webmcp-testing`, reload, and use Chrome’s Model Context Tool Inspector extension to list and call tools.
+
 ## Privacy
 
 No accounts. Documents are parsed in the browser and are not uploaded to Junco. Optional network after page load (besides fonts): anonymous [PostHog](https://posthog.com) pageviews/events (no session replay, no autocapture, no document contents); Hugging Face model weights and jsDelivr ONNX Runtime glue only if you opt into Natural.

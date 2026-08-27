@@ -74,7 +74,10 @@ import {
   runWebSpeechPlayback,
   voiceByURI,
 } from './lib/webSpeechEngine'
-import { sampleDocument } from './lib/sampleDocument'
+import { SPEED_OPTIONS } from './lib/playbackSpeeds'
+import { SAMPLE_DOCUMENT_NAME, sampleDocument } from './lib/sampleDocument'
+import { useWebMcpTools } from './lib/useWebMcpTools'
+import { epubChapterListing } from './lib/webmcpListing'
 import {
   clearShareParamFromUrl,
   hasIncomingShareParam,
@@ -82,7 +85,7 @@ import {
   takeSharedText,
 } from './lib/incomingShare'
 import { ensureVoiceBinCached } from './lib/kokoroVoices'
-import { DEFAULT_VOICE_ID, voiceById } from './lib/voices'
+import { DEFAULT_VOICE_ID, VOICES, voiceById } from './lib/voices'
 import { MARKETING_URL } from './lib/appStore'
 import { Events, track } from './lib/analytics'
 import { hasSeenNudge, markNudgeSeen } from './lib/postListenNudge'
@@ -183,6 +186,7 @@ export default function App() {
   const instantPlayRef = useRef(false)
   const epubProgressTimerRef = useRef(null)
   const pendingEpubProgressRef = useRef(null)
+  const webmcpActionsRef = useRef({})
 
   const instantUsable = isInstantUsable({
     apiSupported: WEB_SPEECH_SUPPORTED,
@@ -530,7 +534,7 @@ export default function App() {
     const ok = window.confirm(
       'Remove the voice model from this device? You can download it again anytime. Your documents are not stored and will not be affected.',
     )
-    if (!ok) return
+    if (!ok) return false
 
     setRemovingModel(true)
     setModelError(null)
@@ -543,9 +547,11 @@ export default function App() {
       setModelProgress(0)
       setModelStatus('needed')
       setGenStats(null)
+      return true
     } catch (err) {
       console.error(err)
       setModelError(err?.message || 'Could not remove the cached model.')
+      return false
     } finally {
       setRemovingModel(false)
     }
@@ -1166,14 +1172,23 @@ export default function App() {
     }
   }
 
+  const openPastedText = useCallback(
+    (raw) => {
+      const doc = extractFromPaste(raw)
+      setIngestError(null)
+      stopPlayback()
+      applyDocument(doc)
+      setPaste(typeof raw === 'string' ? raw : '')
+      track(Events.DOCUMENT_LOADED, { source: 'paste', kind: doc.kind })
+      return { kind: doc.kind, name: doc.name }
+    },
+    [applyDocument, stopPlayback],
+  )
+
   const onPasteSubmit = (e) => {
     e.preventDefault()
-    setIngestError(null)
-    stopPlayback()
     try {
-      const doc = extractFromPaste(paste)
-      applyDocument(doc)
-      track(Events.DOCUMENT_LOADED, { source: 'paste', kind: doc.kind })
+      openPastedText(paste)
     } catch (err) {
       setIngestError(err?.message || 'Nothing to read.')
     }
@@ -1322,6 +1337,177 @@ export default function App() {
             : null
 
   const canPause = engine === 'webspeech' || pipelineReady
+
+  webmcpActionsRef.current = {
+    getStatus: () => ({
+      hasDocument: Boolean(document),
+      documentKind: document?.kind ?? null,
+      documentName: document?.name ?? null,
+      bookTitle: document?.meta?.title ?? null,
+      engine: engine === 'kokoro' ? 'natural' : 'instant',
+      modelStatus,
+      naturalAvailable,
+      instantUsable,
+      engineReady,
+      playing,
+      paused,
+      speed,
+      voice: engine === 'kokoro' ? voiceId : webSpeechVoiceURI,
+      instantVoices: engine === 'webspeech'
+        ? webSpeechVoices.map((voice) => ({ name: voice.name, voiceURI: voice.voiceURI }))
+        : undefined,
+      chapter: isEpub ? selectedChapterIndex + 1 : null,
+      chapterCount: isEpub ? document.chapters?.length ?? 0 : null,
+      progressPercent: isEpub ? currentEpubPercent : null,
+      hasResume: Boolean(resumePosition),
+      ingestBusy,
+      canPause,
+    }),
+    loadSample: () => {
+      onTrySample()
+      return { kind: 'txt', name: SAMPLE_DOCUMENT_NAME }
+    },
+    openPastedText,
+    setEngine: (next) => {
+      const mapped = next === 'natural' ? 'kokoro' : next === 'instant' ? 'webspeech' : next
+      if (mapped !== 'kokoro' && mapped !== 'webspeech') {
+        throw new Error('Engine must be "natural" or "instant".')
+      }
+      if (mapped === 'kokoro' && naturalAvailable !== true) {
+        throw new Error(availabilityHint || NATURAL_UNAVAILABLE_HINT)
+      }
+      if (mapped === 'webspeech' && !instantUsable) {
+        throw new Error(LOCAL_VOICE_UNAVAILABLE_HINT)
+      }
+      onEngineChange(mapped)
+      return { engine: mapped === 'kokoro' ? 'natural' : 'instant' }
+    },
+    setVoice: (voice) => {
+      const query = String(voice || '').trim()
+      if (!query) throw new Error('Provide a voice id, name, or voiceURI.')
+      if (engine === 'kokoro') {
+        const match =
+          VOICES.find((item) => item.id === query) ||
+          VOICES.find((item) => item.displayName.toLowerCase() === query.toLowerCase())
+        if (!match) throw new Error(`Unknown Natural voice "${query}".`)
+        onKokoroVoiceChange(match.id)
+        return { engine: 'natural', voice: match.id, displayName: match.displayName }
+      }
+      const match =
+        webSpeechVoices.find((item) => item.voiceURI === query) ||
+        webSpeechVoices.find((item) => item.name === query) ||
+        webSpeechVoices.find((item) => item.name?.toLowerCase() === query.toLowerCase())
+      if (!match) throw new Error(`Unknown Instant voice "${query}".`)
+      onWebSpeechVoiceChange(match.voiceURI)
+      return { engine: 'instant', voice: match.voiceURI, displayName: match.name }
+    },
+    setSpeed: (speedValue) => {
+      const rate = Number(speedValue)
+      if (!SPEED_OPTIONS.includes(rate)) {
+        throw new Error(`Speed must be one of ${SPEED_OPTIONS.join(', ')}.`)
+      }
+      onSpeedChange(rate)
+      return { speed: rate }
+    },
+    downloadNaturalModel: async () => {
+      if (naturalAvailable !== true) {
+        throw new Error(availabilityHint || NATURAL_UNAVAILABLE_HINT)
+      }
+      if (modelStatus === 'ready' && getLoadedMeta().device) {
+        return { modelStatus: 'ready', note: 'Natural voice is already on this device.' }
+      }
+      await handleDownload()
+      if (!getLoadedMeta().device) {
+        throw new Error('Natural voice did not finish downloading.')
+      }
+      return { modelStatus: 'ready' }
+    },
+    clearNaturalModel: async () => {
+      const removed = await handleRemoveModel()
+      if (!removed) {
+        throw new Error('Natural voice model was not removed.')
+      }
+      return { modelStatus: 'needed' }
+    },
+    play: async () => {
+      if (!document) throw new Error('Open a document or paste text before playing.')
+      if (!chunks.length) throw new Error('This document has no readable text.')
+      if (playing && paused) {
+        await onResume()
+        return { playing: true, paused: false }
+      }
+      if (playing && !paused) return { playing: true, paused: false }
+      if (!engineReady) throw new Error(readyHint || 'Voice engine is not ready.')
+      onPlay()
+      return { playing: true }
+    },
+    pause: async () => {
+      if (!playing || paused) throw new Error('Nothing is playing.')
+      if (!canPause) throw new Error('Wait until playback is ready before pausing.')
+      await onPause()
+      return { paused: true }
+    },
+    stop: () => {
+      onStop()
+      return { playing: false, paused: false }
+    },
+    listChapters: () => epubChapterListing(document),
+    seekChapter: ({ chapter, playNow }) => {
+      if (document?.kind !== 'epub') throw new Error('Open an EPUB to seek chapters.')
+      const index = Number(chapter) - 1
+      if (!Number.isInteger(index) || index < 0 || index >= (document.chapters?.length || 0)) {
+        throw new Error(`Chapter ${chapter} is out of range.`)
+      }
+      onChapterChange(index, Boolean(playNow))
+      return {
+        chapter: index + 1,
+        title: document.chapters[index].title,
+        playing: Boolean(playNow),
+      }
+    },
+    playFromSection: ({ chapter, sectionId, sectionTitle }) => {
+      if (document?.kind !== 'epub') throw new Error('Open an EPUB to play a section.')
+      const index = Number(chapter) - 1
+      const chapterRecord = document.chapters?.[index]
+      if (!chapterRecord) throw new Error(`Chapter ${chapter} is out of range.`)
+      const sections = chapterRecord.sections || []
+      let section = null
+      if (sectionId) section = sections.find((item) => item.id === sectionId) || null
+      if (!section && sectionTitle) {
+        const needle = String(sectionTitle).trim().toLowerCase()
+        section = sections.find((item) => item.title?.toLowerCase() === needle) || null
+      }
+      if (!sectionId && !sectionTitle) {
+        onChapterChange(index, true)
+        return { chapter: index + 1, title: chapterRecord.title, playing: true }
+      }
+      if (!section) throw new Error('Could not find that section in the chapter.')
+      onSectionSeek(index, section, true)
+      return {
+        chapter: index + 1,
+        sectionId: section.id,
+        sectionTitle: section.title,
+        playing: true,
+      }
+    },
+    resumeSaved: () => {
+      if (!resumePosition) throw new Error('No saved position for this book.')
+      onResumeBook()
+      return { chapter: resumePosition.chapterIndex + 1 }
+    },
+    clearSaved: () => {
+      if (document?.kind === 'epub' && document.meta?.fingerprint) {
+        clearEpubProgress(document.meta.fingerprint)
+      }
+      setResumePosition(null)
+      return { hasResume: false }
+    },
+  }
+
+  useWebMcpTools(webmcpActionsRef, {
+    hasDocument: Boolean(document),
+    isEpub,
+  })
 
   const voicePickerProps = {
     engine,
